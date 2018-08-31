@@ -536,13 +536,20 @@ def main(model='mlp', num_epochs=500, dataset='mnist', folder="", exp_start_time
     timestr = now.strftime("%Y%m%d-%H%M%S")
     print("_result_change")
     print(start_time, timestr)
-    filename= str(folder+dataset+"_result_"+model+"_"+exp_start_time+"_"+timestr)
+    if os.path.exists(folder):
+        filename= str(folder+dataset+"_result_"+model+"_"+exp_start_time+"_"+timestr)
+    else:
+        filename= str(dataset+"_result_"+model+"_"+exp_start_time+"_"+timestr)
     
     np.savez(filename,(trn_err_list, val_err_list, val_acc_list, tst_err_fin, 
                        tst_acc_fin*100, tst_acc_list, best_test_early_stop))
 
     # save model and code 
-    filename= str(folder+dataset+"_model_"+model+"_"+timestr)
+    if os.path.exists(folder):
+        filename= str(folder+dataset+"_model_"+model+"_"+timestr)
+    else:
+        filename= str(dataset+"_model_"+model+"_"+timestr)
+    
     fixed_params = lasagne.layers.get_all_params(network, trainable=False)
     fixed_params =[t.name for t in fixed_params]
     trn_params = lasagne.layers.get_all_params(network, trainable=True)
@@ -625,7 +632,8 @@ if __name__ == '__main__':
         timestr = now.strftime("%Y%m%d-%H%M%S")
         # get the code for this run.
         from shutil import copyfile
-        copyfile("mnist.py", kwargs['folder'] +"code_"+"mnist_"+kwargs['model']+timestr+".py")
+        if os.path.exists(kwargs['folder']):
+            copyfile("mnist.py", kwargs['folder'] +"code_"+"mnist_"+kwargs['model']+timestr+".py")
     
         for i in range(n_reps):
             print("Repetition: ",i)
