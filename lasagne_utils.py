@@ -271,8 +271,8 @@ def sgdWithLrsClip(loss_or_grads, params, learning_rate=.01, mu_lr=.01, si_lr=.0
         else:
             updates[param] = param - learning_rate * grad
             updates = apply_momentum(updates, params=[param], momentum=momentum)
-            if param.name.find('W')>=0:
-                print (param, grad, learning_rate)
+            #if param.name.find('W')>=0:
+                #print (param, grad, learning_rate)
     return updates
 
 def sgdWithLrLayers(loss_or_grads, params, learning_rate=.01, mu_lr=.01, si_lr=.001, 
