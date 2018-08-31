@@ -212,17 +212,44 @@ def load_dataset_mnist_cluttered(folder=""):
 def load_dataset_mnist(folder=""):
     # We first define a download function, supporting both Python 2 and 3.
     
-    def download(filename, source='http://yann.lecun.com/exdb/mnist/', folder=""):
+    def download(filename, source='http://yann.lecun.com/exdb/mnist/'):
         print("Downloading %s" % filename)
-        local_path = folder+filename  
-        urlretrieve(source + filename, local_path)
+        urlretrieve(source + filename, filename)
+
+    # We then define functions for loading MNIST images and labels.
+    # For convenience, they also download the requested files if needed.
+    import gzip
+
+    def load_mnist_images(filename):
+        if not os.path.exists(filename):
+            download(filename)
+        # Read the inputs in Yann LeCun's binary format.
+        with gzip.open(filename, 'rb') as f:
+            data = np.frombuffer(f.read(), np.uint8, offset=16)
+        # The inputs are vectors now, we reshape them to monochrome 2D images,
+        # following the shape convention: (examples, channels, rows, columns)
+        data = data.reshape(-1, 1, 28, 28)
+        # The inputs come as bytes, we convert them to float32 in range [0,1].
+        # (Actually to range [0, 255/256], for compatibility to the version
+        # provided at http://deeplearning.net/data/mnist/mnist.pkl.gz.)
+        return data / np.float32(256)
+
+    def load_mnist_labels(filename):
+        if not os.path.exists(filename):
+            download(filename)
+        # Read the labels in Yann LeCun's binary format.
+        with gzip.open(filename, 'rb') as f:
+            data = np.frombuffer(f.read(), np.uint8, offset=8)
+        # The labels are vectors of integers now, that's exactly what we want.
+        return data
         
     fname = folder+"mnist.npz"
     if not os.path.exists(fname):
         download(fname, folder=folder)
-        
-    data = np.load(fname)
-    print("Dataset Loaded")
+    else:
+        data = np.load(fname)
+        print("Dataset Loaded")
+    
     X_train, y_train = data['x_train'], data['y_train']
     X_test, y_test = data['x_test'], data['y_test']
     

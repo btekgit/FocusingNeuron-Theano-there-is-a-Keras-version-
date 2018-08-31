@@ -104,6 +104,8 @@ class FocusedLayer1D(Layer):
     By default the sum of focus coefficients is equal to incoming input size.
      
     trainScaler: it is possible to train scaler, sum of focus coeffs. default(False), 
+    
+    verbose: prints debugging information
      
     nonlinearity : callable or None
         The nonlinearity that is applied to the layer activations. If None
@@ -133,7 +135,7 @@ class FocusedLayer1D(Layer):
                  trainSis=False, trainWs=False, initMu='spread', initSigma=0.1, 
                  weight_gain=1.0, scaler=1.0, 
                  trainScaler=False, nonlinearity=nonlinearities.linear,
-                 name=None,
+                 name=None, verbose=False,
                  **kwargs):
         super(FocusedLayer1D, self).__init__(incoming, name, **kwargs)
         
@@ -147,9 +149,11 @@ class FocusedLayer1D(Layer):
         self.trainMus = trainMus
         self.trainSis = trainSis
         self.weight_gain = weight_gain
+        
 
         # Initalizations  for focus center mu and aperture sigma     
-        mu, si = mu_si_initializer(initMu, initSigma, self.num_incoming, num_units)
+        mu, si = mu_si_initializer(initMu, initSigma, self.num_incoming,
+                                   num_units, verbose=verbose)
         
         #  setup the input positional frame           
         idxs = T.arange(0, self.num_incoming) / T.cast(self.num_incoming, 
@@ -178,7 +182,7 @@ class FocusedLayer1D(Layer):
         
         # if weights are used call weight_init method
         if withWeights:
-            W = self.weight_init((self.num_incoming , num_units))
+            W = self.weight_init((self.num_incoming , num_units), verbose)
             self.W = self.add_param(W, (self.num_incoming , num_units), 
                                     name="W", trainable=trainWs)
             if bias is not None:
@@ -192,7 +196,7 @@ class FocusedLayer1D(Layer):
 
 
     
-    def weight_init(self, shape):
+    def weight_init(self, shape, verbose=False):
 
         wu = self.calc_u().eval().T
         W = np.zeros_like(wu, dtype='float32')
@@ -217,9 +221,9 @@ class FocusedLayer1D(Layer):
             w_vec = np.random.uniform(low=-std,high=std,size=(wu.shape[0],))
             
             if c==0 or c==(wu.shape[1]-1) or c==(wu.shape[1]/2):
-
-                print ("neuron", c, "WU: ", (wu[:,c]*w_vec)[:6])
-                print ("std:, fan_in", std,fan_in)
+                if verbose==True:
+                    print ("neuron", c, "WU: ", (wu[:,c]*w_vec)[:6])
+                    print ("std:, fan_in", std,fan_in)
                 
             W[:,c] = w_vec.astype('float32')
         
@@ -307,7 +311,7 @@ class FocusedLayer1D(Layer):
         return ex
  
     
-def mu_si_initializer(initMu, initSi, num_incoming, num_units):
+def mu_si_initializer(initMu, initSi, num_incoming, num_units, verbose=False):
     '''
     Initialize focus centers and sigmas with regards to initMu, initSi
     
@@ -322,9 +326,8 @@ def mu_si_initializer(initMu, initSi, num_incoming, num_units):
             mu = np.repeat(.5, num_units)  # On paper we have this initalization                
         elif initMu =='middle_random':
             mu = np.repeat(.5, num_units)  # On paper we have this initalization
-            #mu += (np.random.rand(len(mu))-0.5)*(1.0/(float(num_incoming*num_incoming)))  # On paper we have this initalization                
             mu += (np.random.rand(len(mu))-0.5)*(1.0/(float(20.0)))  # On paper we have this initalization                
-            print("mu init:", mu)
+            
         elif initMu == 'spread':
             mu = np.linspace(0.2, 0.8, num_units)
         else:
@@ -344,7 +347,7 @@ def mu_si_initializer(initMu, initSi, num_incoming, num_units):
     #Initialize sigma
     if isinstance(initSi,str):
         if initSi == 'random':
-            si = np.random.uniform(low=0.05,high=0.25,size=num_units)
+            si = np.random.uniform(low=0.05, high=0.25, size=num_units)
         elif initSi == 'spread':
             si = np.repeat((initSi / num_units), num_units)
 
@@ -357,6 +360,9 @@ def mu_si_initializer(initMu, initSi, num_incoming, num_units):
     # Convert Types for GPU
     mu = mu.astype(dtype='float32')
     si = si.astype(dtype='float32')
+    if verbose:
+        print("mu init:", mu)
+        print("si init:", si)
         
     return mu, si
 
