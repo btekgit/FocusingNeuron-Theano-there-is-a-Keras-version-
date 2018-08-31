@@ -231,7 +231,7 @@ class FocusedLayer1D(Layer):
             Var[w_i * f_i]=1/m
             with fay**2 (sx**2+mux**2) variance
         """
-        from lasagne.init import Normal as initializer
+        #from lasagne.init import Normal as initializer
         # for weight init, calculate initial Gaussians.
         wu = self.calc_u().eval().T
         W = np.zeros_like(wu, dtype='float32')

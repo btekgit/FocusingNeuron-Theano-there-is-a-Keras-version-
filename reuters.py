@@ -23,8 +23,7 @@ get_shared_by_pattern,sgdWithLrs,iterate_minibatches,set_params_value,\
 debug_print_param_stats, get_params_values_wkey
 
 
-from data_utils import load_dataset_mnist, load_dataset_mnist_cluttered,\
-load_dataset_fashion, load_dataset_cifar10, load_dataset_reuters
+from data_utils import load_dataset_reuters
 
 def build_custom_mlp(input_var=None, input_shape=(None,1,28,28),
                      output_shape = 10,
@@ -160,7 +159,10 @@ def build_network_model(model, input_var, input_shape, output_shape,
     if model.startswith('mlp'):
         extraparams = model.split(':', 1)
         if len(extraparams)==1:
-            network = build_mlp(input_var, input_shape=input_shape)
+            network = network = build_custom_mlp(input_var,input_shape=input_shape, 
+                                       output_shape=output_shape,
+                                       depth=int(2), width=int(100),
+                                       batch_norm=batch_norm, regress=regress)
         else:
             depth, width, drop_in, drop_hid = extraparams[1].split(',')
             network = build_custom_mlp(input_var,input_shape=input_shape, 
@@ -187,19 +189,6 @@ def build_network_model(model, input_var, input_shape, output_shape,
                                     drop_hidden=drop_hid, init_mu='spread',
                                     update_mu=False, update_si=False,initsigma=.1,
                                     batch_norm=batch_norm, regress=regress)
-    elif model == 'cnn':
-        network = build_cnn_simple(input_var,input_shape=input_shape)
-        
-    elif model.startswith('focused_cnn'):
-        #network = build_focused_cnn(input_var)
-        
-        network = build_fcnn_simple(input_var,input_shape=input_shape,initsigma=.10)
-        print(input_shape)
-        #print("this is working")
-    elif model.startswith('fixed_cnn'):
-        #network = build_focused_cnn(input_var)
-        network = build_fcnn_simple(input_var,input_shape=input_shape, 
-                                    update_mu=False, update_si=False,initsigma=.10)
     else:
         print("Unrecognized model type %r." % model)
         return
@@ -216,7 +205,6 @@ def build_functions(network, input_var, target_var, regress=False):
         loss = lasagne.objectives.squared_error(prediction, target_var)
         
     loss = loss.mean()
-    add_regularization = False
     # We could add some weight decay as well here, see lasagne.regularization.
 
     # Create update expressions for training, i.e., how to modify the
@@ -277,34 +265,27 @@ def build_functions(network, input_var, target_var, regress=False):
 def main(model='mlp', num_epochs=500, dataset='reuters', folder="", exp_start_time=None):
     # Load the dataset
     print("Loading data...")
-    #X_train, y_train, X_val, y_val, X_test, y_test = load_dataset()
       
     if dataset== 'boston':
-        #X_train, y_train, X_val, y_val, X_test, y_test =load_dataset_boston('../datasets/housing/')
+
         from sklearn import cross_validation
         from sklearn import preprocessing
-        from sklearn import metrics, datasets
-        from sklearn.utils import shuffle
+        from sklearn import datasets
+        #from sklearn.utils import shuffle
         boston = datasets.load_boston()
         X, y = boston.data.astype('float32'), boston.target.astype('float32')
         #X, y = shuffle(boston.data, boston.target, random_state=13)
         scaler = preprocessing.StandardScaler()
         X = scaler.fit_transform(X)
-        #offset = int(X.shape[0] * 0.9)
-        #X_train, y_train = X[:offset], y[:offset]
-        #X_test, y_test = X[offset:], y[offset:]
+        
         X_train, X_test, y_train, y_test = cross_validation.train_test_split(
                 X, y, test_size=0.1, random_state=42)
         
         #X_train = scaler.fit_transform(X_train)
         X_val = X_train.copy()
         y_val = y_train.copy()
-        print("validation is just a copy of X_train but with no drop out")
-        #X_test  = scaler.fit_transform(X_test)
-#        max_val = np.max(y_train)
-#        y_train /=  max_val
-#        y_val /= max_val
-#        y_test /=  max_val
+        print("validation is just a copy of X_train, so results will be similar but with no drop out")
+        
         
         from sklearn import ensemble
         from sklearn.metrics import mean_squared_error
@@ -414,8 +395,6 @@ def main(model='mlp', num_epochs=500, dataset='reuters', folder="", exp_start_ti
     
     set_params_value(LR_params,[lr_all,lr_mu,lr_si,lr_fw])
     
-    
-    
     for epoch in range(num_epochs):
         # In each epoch, we do a full pass over the training data:
         train_err = 0
@@ -513,13 +492,14 @@ def main(model='mlp', num_epochs=500, dataset='reuters', folder="", exp_start_ti
     
     # save model and code 
     filename= str(folder+dataset+"_model_"+model+"_"+timestr)
-    all_params = lasagne.layers.get_all_params(network, trainable=True)
-    all_param_values = lasagne.layers.get_all_param_values(network, trainable=True)
-    np.savez(filename, all_param_values, all_params)
-    debug_params_save = False
-    if debug_params_save:
-        filename= str(folder+dataset+"_debug_params_"+model)
-        np.savez_compressed(filename, param_list, record_params)
+    fixed_params = lasagne.layers.get_all_params(network, trainable=False)
+    fixed_params =[t.name for t in fixed_params]
+    trn_params = lasagne.layers.get_all_params(network, trainable=True)
+    trn_params =[t.name for t in trn_params]
+    fixed_param_values = lasagne.layers.get_all_param_values(network, trainable=False)
+    trn_param_values = lasagne.layers.get_all_param_values(network, trainable=True)
+    
+    np.savez(filename, trn_params, trn_param_values, fixed_params, fixed_param_values)
 
 
 
@@ -535,14 +515,6 @@ def main(model='mlp', num_epochs=500, dataset='reuters', folder="", exp_start_ti
         plt.title("Train and Validation Error")
         plt.legend(("Train","Validate"))
         plt.show()
-    
-    # Optionally, you could now dump the network weights to a file like this:
-    # np.savez('model.npz', *lasagne.layers.get_all_param_values(network))
-    #
-    # And load them again later on like this:
-    # with np.load('model.npz') as f:
-    #     param_values = [f['arr_%d' % i] for i in range(len(f.files))]
-    # lasagne.layers.set_all_param_values(network, param_values)
 
 
 if __name__ == '__main__':

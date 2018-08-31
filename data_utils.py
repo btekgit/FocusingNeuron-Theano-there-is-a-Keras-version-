@@ -45,7 +45,7 @@ def standarize_columns(trn, val=None, tst=None):
 
 
 def standarize_whole(trn, val=None, tst=None):
-    from sklearn.preprocessing import StandardScaler
+ 
     mn_trn = np.mean(trn)
     std_trn = np.std(trn)
     trn -= mn_trn
@@ -61,7 +61,7 @@ def standarize_whole(trn, val=None, tst=None):
 
 
 def standarize_image_025(trn, val=None, tst=None):
-    from sklearn.preprocessing import StandardScaler
+
     K = 4.0 # 2.0 is very good with MNIST 99.20-99.19
     M = 256.0
     trn /= M
@@ -122,17 +122,18 @@ def print_x_i_mean_variance(X): # incomplete code
     print("means mx,mn, mn:",np.max(mns), np.mean(mns), np.min(mns))
     print("vars mx,mn, mn:",np.max(vrs), np.mean(vrs), np.min(vrs))
 
-def x_i_zero_mean_unit_variance(X1,X2, verbose=False):   
-    
-    colmns= np.mean(X,axis=0)
-    colvrs= np.std(X,axis=0)
-    colvrs[colvrs==0]=np.float32(1.0)
-    X = (X-colmns)/(colvrs+1E-10)
-    if X.ndim==4:
-        X = np.reshape(X,(-1,n_c,w,h))
-    if X.ndim==3:
-        X = np.reshape(X,(-1,w,h))
-    return X
+#def x_i_zero_mean_unit_variance(X1, X2, verbose=False):   
+#    
+#    colmns= np.mean(X1,axis=0)
+#    colvrs= np.std(X1,axis=0)
+#    colvrs[colvrs==0]=np.float32(1.0)
+#    X1 = (X1-colmns)/(colvrs+1E-10)
+#    X2 = (X2-colmns)/(colvrs+1E-10)
+#    if X1.ndim==4:
+#        X1 = np.reshape(X,(-1,n_c,w,h))
+#    if X1.ndim==3:
+#        X1 = np.reshape(X,(-1,w,h))
+#    return X
  
 def load_dataset_cifar10(folder=""):
     data = np.load(folder+"cifar_10.npz")

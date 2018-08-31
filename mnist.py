@@ -265,7 +265,8 @@ def build_network_model(model, input_var, input_shape):
     if model.startswith('mlp'):
         extraparams = model.split(':', 1)
         if len(extraparams)==1:
-            network = build_mlp(input_var, input_shape=input_shape)
+            network = build_custom_mlp(input_var,input_shape=input_shape, 
+                                       depth=int(2), width=int(800))
         else:
             depth, width, drop_in, drop_hid = extraparams[1].split(',')
             network = build_custom_mlp(input_var,input_shape=input_shape, 

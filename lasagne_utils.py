@@ -9,21 +9,22 @@ from theano.tensor import basic as tensor, subtensor, opt, elemwise
 import theano.tensor as T
 import numpy as np
 import lasagne
+import pickle
 
 def save_params(filename,param_values):
     '''
     store the parameters to the  given file
     '''
-    f = file(filename, 'wb')
-    cPickle.dump(param_values,f,protocol=cPickle.HIGHEST_PROTOCOL)
+    f = open(filename, 'wb')
+    pickle.dump(param_values,f,protocol=pickle.HIGHEST_PROTOCOL)
     f.close()
 
 def load_params(filename):
     '''
     reads all parameters from the  given file
     '''
-    f = file(filename, 'rb')
-    param_values = cPickle.load(f)
+    f = open(filename, 'rb')
+    param_values = pickle.load(f)
     f.close()
     return param_values
 
@@ -48,15 +49,15 @@ def categorical_focal_loss(prediction, target_var, gamma=0.0, alpha=1.0):
     '''
     focal loss function which lowers the cost of allready classified samples 
     '''     
-     if target_var.ndim == prediction.ndim:
+    if target_var.ndim == prediction.ndim:
         # the code is adapted from original categorical loss
         ## f_loss= -(np.log(1-p)*((p)**gamma))
         prediction = T.clip(prediction, 1e-3, 1-1e-3)
         return -T.sum(target_var * T.log(prediction)*((1-prediction)**gamma),
                            axis=prediction.ndim - 1)
-     else:         
-         print(target_var.ndim, "/=", prediction.ndim)
-         raise TypeError('rank mismatch between coding and true distributions')
+    else:         
+        print(target_var.ndim, "/=", prediction.ndim)
+        raise TypeError('rank mismatch between coding and true distributions')
         
 
 
@@ -71,7 +72,7 @@ def get_shared_by_name(in_list, name):
             
             return ts
     print ("cant find", name)
-    return theano.shared(np.float32('0'), name='Auto')
+    return T.shared(np.float32('0'), name='Auto')
 
 
 def get_shared_by_pattern(in_list, name):
@@ -241,14 +242,14 @@ def sgdWithLrs(loss_or_grads, params, learning_rate=.01, mu_lr=.01, si_lr=.001,
 
 def sgdWithLrsClip(loss_or_grads, params, learning_rate=.01, mu_lr=.01, si_lr=.001, 
                focused_w_lr=.01, momentum=.9):
-     '''
+    '''
     Sames as sgdWithLrs bu applies clips after updates
     '''
     from collections import OrderedDict
     from lasagne.updates import get_or_compute_grads, apply_momentum
     grads = get_or_compute_grads(loss_or_grads, params)
     updates = OrderedDict()
-    momentum_params_list =[]
+    #momentum_params_list =[]
     print("Params List",params)
     for param, grad in zip(params, grads):
         
@@ -284,7 +285,7 @@ def sgdWithLrLayers(loss_or_grads, params, learning_rate=.01, mu_lr=.01, si_lr=.
     from lasagne.updates import get_or_compute_grads, apply_momentum
     grads = get_or_compute_grads(loss_or_grads, params)
     updates = OrderedDict()
-    momentum_params_list =[]
+    #momentum_params_list =[]
     #print(params)
     for param, grad in zip(params, grads):
         # import pdb; pdb.set_trace()
@@ -354,7 +355,7 @@ def sgdWithWeightSupress(loss_or_grads, params, learning_rate=.01, mu_lr=.01, si
     from lasagne.updates import get_or_compute_grads, apply_momentum
     grads = get_or_compute_grads(loss_or_grads, params)
     updates = OrderedDict()
-    momentum_params_list =[]
+    #momentum_params_list =[]
     print(params)
     for param, grad in zip(params, grads):
         
