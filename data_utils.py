@@ -78,7 +78,7 @@ def standarize_image_025(trn, val=None, tst=None):
     
     return trn, val, tst
 
-def reshape_and_standardize(trn, tst, standardize_by_stats=False,columns=False):
+def reshape_and_standardize(trn, tst, standardize_by_stats=False,columns=True, verbose=False):
     if trn.ndim==4:
         n_s, w, h, n_c = np.shape(trn)
     elif trn.ndim==3:
@@ -88,25 +88,29 @@ def reshape_and_standardize(trn, tst, standardize_by_stats=False,columns=False):
         w, h = np.shape(trn)
         n_c = 1
         n_s = 1
-        
-    print_x_i_mean_variance(trn)
-    print_x_i_mean_variance(tst)
+    
+    if verbose:
+        print_x_i_mean_variance(trn)
+        print_x_i_mean_variance(tst)
         
     trn= np.reshape(trn, [-1, n_c * w * h]).astype('float32')
     tst= np.reshape(tst, [-1, n_c * w * h]).astype('float32')
    
     if standardize_by_stats:
         if (columns):
-            trn, tst,_ = standarize_columns(trn, tst)
+            trn, tst,_ = standarize_columns(trn, tst)# this normalizes each data column
         else:
-            trn, tst,_ = standarize_whole(trn,tst)
+            trn, tst,_ = standarize_whole(trn,tst) # this one is not really a normalization
+            
     else:
         # input is image 
+        # this does not take mean and variance into account
+        # but works good with images. 
         trn, tst,_ = standarize_image_025(trn, tst)
         
-    
-    print_x_i_mean_variance(trn)
-    print_x_i_mean_variance(tst)
+    if verbose:
+        print_x_i_mean_variance(trn)
+        print_x_i_mean_variance(tst)
     trn = np.reshape(trn, [-1, n_c, w, h]).astype('float32')
     tst = np.reshape(tst, [-1, n_c, w, h]).astype('float32')
     
@@ -115,12 +119,12 @@ def reshape_and_standardize(trn, tst, standardize_by_stats=False,columns=False):
     
 def print_x_i_mean_variance(X): # incomplete code
     # assume 4-d array came . N,1,w,h
-    print("shp:",X.shape)
+    print("Data shape:",X.shape)
     #Xcol = np.reshape(X,(-1,X.shape[-1]*X.shape[-2]))
     mns =np.mean(X,axis=0)
     vrs = np.var(X,axis=0)
-    print("means mx,mn, mn:",np.max(mns), np.mean(mns), np.min(mns))
-    print("vars mx,mn, mn:",np.max(vrs), np.mean(vrs), np.min(vrs))
+    print("means mx,mean, min:",np.max(mns), np.mean(mns), np.min(mns))
+    print("vars mx,meann, min:",np.max(vrs), np.mean(vrs), np.min(vrs))
 
 #def x_i_zero_mean_unit_variance(X1, X2, verbose=False):   
 #    
@@ -135,18 +139,25 @@ def print_x_i_mean_variance(X): # incomplete code
 #        X1 = np.reshape(X,(-1,w,h))
 #    return X
  
-def load_dataset_cifar10(folder=""):
+def load_dataset_cifar10(folder="", verbose=False):
     data = np.load(folder+"cifar_10.npz")
     print("Dataset Loaded")
     X_train, y_train = data['x_train'], data['y_train']
     
     X_test, y_test = data['x_test'], data['y_test']
 
-    X_train, X_test  = reshape_and_standardize(X_train, X_test,standardize_by_stats=True)
-    print("s:",X_train.shape)
+    X_train, X_test  = reshape_and_standardize(X_train, X_test,
+                                               standardize_by_stats=False,
+                                               verbose=True)
     
-    X_train, X_valid = X_train[:-10000], X_train[-10000:]
-    y_train, y_valid = y_train[:-10000], y_train[-10000:]
+    print("Data shape:",X_train.shape)
+    
+    random_i = np.random.permutation(X_train.shape[0])
+    var_len=10000
+    X_train, X_valid = X_train[random_i[:-var_len]], X_train[random_i[-var_len:]]
+    y_train, y_valid = y_train[random_i[:-var_len]], y_train[random_i[-var_len:]]
+    print("Train shape:",X_train.shape)
+    print("Val shape:",X_valid.shape)
     plt_figure=False
     if plt_figure:
         import matplotlib.pyplot as plt
@@ -158,7 +169,7 @@ def load_dataset_cifar10(folder=""):
     y_train = np.squeeze(y_train).astype('int32')
     y_valid = np.squeeze(y_valid).astype('int32')
     y_test = np.squeeze(y_test).astype('int32')
-    
+    print("Test shape:",X_test.shape)
     return X_train, y_train, X_valid, y_valid, X_test, y_test
 
 
@@ -169,11 +180,16 @@ def load_dataset_fashion(folder=""):
     
     X_test, y_test = data['x_test'], data['y_test']
 
-    X_train, X_test  = reshape_and_standardize(X_train, X_test,standardize_by_stats=True)
-    print("s:",X_train.shape)
+    X_train, X_test  = reshape_and_standardize(X_train, X_test,standardize_by_stats=False)
     
-    X_train, X_valid = X_train[:-10000], X_train[-10000:]
-    y_train, y_valid = y_train[:-10000], y_train[-10000:]
+    print("Data shape:",X_train.shape)
+    
+    random_i = np.random.permutation(X_train.shape[0])
+    var_len=10000
+    X_train, X_valid = X_train[random_i[:-var_len]], X_train[random_i[-var_len:]]
+    y_train, y_valid = y_train[random_i[:-var_len]], y_train[random_i[-var_len:]]
+    print("Train shape:",X_train.shape)
+    print("Val shape:",X_valid.shape)
     plt_figure=False
     if plt_figure:
         import matplotlib.pyplot as plt
@@ -185,7 +201,7 @@ def load_dataset_fashion(folder=""):
     y_train = np.squeeze(y_train).astype('int32')
     y_valid = np.squeeze(y_valid).astype('int32')
     y_test = np.squeeze(y_test).astype('int32')
-    
+    print("Test shape:",X_test.shape)
     return X_train, y_train, X_valid, y_valid, X_test, y_test
     
 def load_dataset_mnist_cluttered(folder=""):
@@ -198,9 +214,12 @@ def load_dataset_mnist_cluttered(folder=""):
     # reshape for convolutions
     
     DIM = 60
-    
+    print("Train shape:",X_train.shape)
+    print("Val shape:",X_valid.shape)
+    # -------------------------------------------------------------------------
     # DO NOT standardize MNIST_CLUTTERED, it is standard
     #X_train,X_valid,X_test = standarize_whole(X_train,val=X_valid,tst=X_test)
+    #--------------------------------------------------------------------------
 
     X_train = X_train.reshape((X_train.shape[0], 1, DIM, DIM))
     X_valid = X_valid.reshape((X_valid.shape[0], 1, DIM, DIM))
@@ -299,10 +318,10 @@ def load_dataset_reuters(folder=""):
     print("Dataset Loaded")
     X_train, y_train = data['X_train'], data['Y_train']
     tr_len = X_train.shape[0]
-    print("Length: ",tr_len)
+    print("Data shape:",X_train.shape)
     ix = np.arange(tr_len)
     np.random.shuffle(ix)
-    print("ix: ",ix.shape)
+    #print("ix: ",ix.shape)
     X_train = X_train[ix]
     y_train = y_train[ix]
     X_train, X_valid = X_train[:-982].astype('float32'), X_train[-982:].astype('float32')
@@ -410,3 +429,11 @@ def load_blob(classes=3, features=10, samples=10, random_state=0,
     y_test=y_test,
     num_examples_train=X_train.shape[0],
     num_examples_test=X_test.shape[0])
+    
+    
+def stich_datasets(X1, X2, y1, y2):
+    # this method is not complete 
+    # thought this dataset can model multiproblem domains.
+    Xres = np.concatenate((X1,X2),axis=3)
+    # how to configure output labels. multi-dim or joint?
+    Yres = np.zeros(shape=(y1.shape(0),y1.shape(1)+y1.shape(2)))

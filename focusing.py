@@ -25,7 +25,7 @@
  * Any commercial use or any redistribution of this software
  * requires a license from F. Boray Tek or Işık University.
  * 
- *
+ *num_leading_axes
  * For further details, contact F. Boray Tek (boraytek@gmail.com).
  */
  
@@ -126,7 +126,7 @@ class FocusedLayer1D(Layer):
                              scaler=1.0, weight_gain=1.0,
                              trainScaler=False, trainWs=True)
 
-    Must clarify what happend if the input has more than two axes, by default, all trailing axes will be
+    Must clarify what happens if the input has more than two axes, by default, all trailing axes will be
     flattened. This is useful when a dense layer follows a convolutional layer.??
     """
     def __init__(self, incoming, num_units, num_leading_axes=1, 
@@ -135,7 +135,7 @@ class FocusedLayer1D(Layer):
                  trainSis=False, trainWs=False, initMu='spread', initSigma=0.1, 
                  weight_gain=1.0, scaler=1.0, 
                  trainScaler=False, nonlinearity=nonlinearities.linear,
-                 name=None, verbose=False,
+                 normed = True, name=None, verbose=False,
                  **kwargs):
         super(FocusedLayer1D, self).__init__(incoming, name, **kwargs)
         
@@ -149,6 +149,7 @@ class FocusedLayer1D(Layer):
         self.trainMus = trainMus
         self.trainSis = trainSis
         self.weight_gain = weight_gain
+        self.normed = normed
         
 
         # Initalizations  for focus center mu and aperture sigma     
@@ -196,11 +197,12 @@ class FocusedLayer1D(Layer):
 
 
     
-    def weight_init(self, shape, verbose=False):
+    def weight_init(self, shape, verbose=True):
 
         wu = self.calc_u().eval().T
         W = np.zeros_like(wu, dtype='float32')
         # for Each Gaussian initialize a new set of weights
+        fan_out = self.num_units
         for c in range(wu.shape[1]):
             fan_in = np.sum(wu[:,c]**2)
             #print ("fan_in", fan_in)
@@ -217,13 +219,14 @@ class FocusedLayer1D(Layer):
             #std = self.weight_gain * np.sqrt(6.0) / np.sqrt((fan_in))
             # this was the mnist8 result
             
-            std = self.weight_gain * np.sqrt(6.0) / np.sqrt(fan_in)
+            std = self.weight_gain * np.sqrt(6.0) / np.sqrt(fan_in+fan_out)
             w_vec = np.random.uniform(low=-std,high=std,size=(wu.shape[0],))
+            #print ("std: ", std, "fan_in: ", fan_in)
             
             if c==0 or c==(wu.shape[1]-1) or c==(wu.shape[1]/2):
                 if verbose==True:
                     print ("neuron", c, "WU: ", (wu[:,c]*w_vec)[:6])
-                    print ("std:, fan_in", std,fan_in)
+                    print ("std: ", std, "fan_in: ", fan_in)
                 
             W[:,c] = w_vec.astype('float32')
         
@@ -260,7 +263,7 @@ class FocusedLayer1D(Layer):
     
     def get_output_for(self, inputs, **kwargs):
         '''
-        Calculates output by first
+        Calculates the output by first
         1) Calling calc_u to compute focus coeeficients
         2) Multiply focus coeffs with weights
         3) Dot product focused weights with inputs
@@ -270,7 +273,10 @@ class FocusedLayer1D(Layer):
             num_leading_axes += inputs.ndim
         if inputs.ndim > num_leading_axes + 1:
             # flatten trailing axes (into (n+1)-tensor for num_leading_axes=n)
-            inputs = inputs.flatten(num_leading_axes + 1)
+            if type(inputs)== np.ndarray:
+                inputs = np.reshape(-1,np.prod(inputs.shape[1:]))
+            else:
+                inputs = inputs.flatten(num_leading_axes + 1)
 
         # calculate focus coeffs
         u  = self.calc_u()
@@ -299,10 +305,21 @@ class FocusedLayer1D(Layer):
         down = (2 * (si_clipped.dimshuffle(0, 'x') ** 2))
         
         # this was working in all experiments. Jul 10 2018
-        ex = T.exp(-up / down)
+        ex = T.exp(-up / down) #/ down
         # this was working Jul 18
-        ex /= T.sum(ex,axis=1).dimshuffle(0,'x')
-        ex *= self.num_incoming * self.scaler.dimshuffle(0, 'x')
+        # if you change ex you must change learning rate accordinglyu
+        #ex /= T.max(ex,axis=1).dimshuffle(0,'x') 
+        
+        # this is paper result Feb 14 2019
+        #ex /= T.sum(ex,axis=1).dimshuffle(0,'x')
+        #ex *= self.num_incoming * self.scaler.dimshuffle(0, 'x')
+        #############################################################3
+        
+        # norm normalization norm will be sqrt(n)
+        if self.normed:
+            ex /= T.sqrt(T.sum(ex**2, axis=1)).dimshuffle(0,'x')
+            ex *= T.sqrt(self.num_incoming) * self.scaler.dimshuffle(0, 'x')
+        
         
         # pruning is not tested with this version
         if self.withPruning:
@@ -388,11 +405,10 @@ def U_numeric(idxs, mus, sis, scaler, normed=True):
     ex = np.exp(-up / down)
     
     if normed:
-        sums = np.sum(ex,axis=1)
+        sums = np.sum(ex**2,axis=1)
         # current focus normalizes each neuron to receive one full 
         ex /= sums[:,np.newaxis]
-    num_incoming = idxs.shape[0]
-    #print('num_incoming', num_incoming)
-    ex = ex*scaler*num_incoming
+        num_incoming = idxs.shape[0]
+        ex = ex*scaler*np.sqrt(num_incoming)
 
     return (ex.astype(dtype='float32'))

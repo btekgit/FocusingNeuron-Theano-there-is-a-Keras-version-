@@ -10,7 +10,8 @@ adapted on Thu Apr 19 18:36:12 2018
 """
 
 import os
-os.environ['THEANO_FLAGS']='device=cuda0, floatX=float32, gpuarray.preallocate=.1'
+if 'THEANO_FLAGS' not in os.environ.keys():
+    os.environ['THEANO_FLAGS']='device=cuda0, floatX=float32, gpuarray.preallocate=.1'
 os.environ['MKL_THREADING_LAYER']='GNU'
 import time
 import lasagne
@@ -168,13 +169,15 @@ def build_cnn_simple(input_var=None,input_shape=(None,1,28,28)):
                                         input_var=input_var)
     # This time we do not apply input dropout, as it tends to work less well
     # for convolutional layers.
-
+    
     # Convolutional layer with 32 kernels of size 5x5. Strided and padded
     # convolutions are supported as well; see the docstring.
     network = lasagne.layers.Conv2DLayer(
-            network, num_filters=32, filter_size=(5, 5),
+            network, num_filters=128, filter_size=(5, 5),
             nonlinearity=lasagne.nonlinearities.rectify,
             W=lasagne.init.GlorotUniform())
+    
+    
     # Expert note: Lasagne provides alternative convolutional layers that
     # override Theano's choice of which implementation to use; for details
     # please see http://lasagne.readthedocs.org/en/latest/user/tutorial.html.
@@ -184,7 +187,7 @@ def build_cnn_simple(input_var=None,input_shape=(None,1,28,28)):
 
     # Another convolution with 32 5x5 kernels, and another 2x2 pooling:
     network = lasagne.layers.Conv2DLayer(
-            network, num_filters=32, filter_size=(5, 5),
+            network, num_filters=96, filter_size=(5, 5),
             nonlinearity=lasagne.nonlinearities.rectify)
     
     network = lasagne.layers.MaxPool2DLayer(network, pool_size=(2, 2))
@@ -200,6 +203,116 @@ def build_cnn_simple(input_var=None,input_shape=(None,1,28,28)):
             lasagne.layers.dropout(network, p=.5),
             num_units=10,
             nonlinearity=lasagne.nonlinearities.softmax)
+
+    return network
+
+def build_cnn_simple2(input_var,input_shape, oned=False, params_for_test={},
+                      replace_dense_w_focus = False, num_f=32, fsize=(5,5), 
+                      psize=(2,2), num_dense=256, nonlin=lasagne.nonlinearities.rectify):
+    ''' As a third model, we'll create a CNN of two convolution + pooling stages
+     and a hidden layer in front of the output layer.
+
+    if oned=True, convolutions are 1D.
+     if replace_dense_w_focus=True, dense layers are replaced by Focusing Layers
+     default 
+     drop out is 0.25, 
+     filter size is fsize 5x5
+     pool size psize(2,2)
+     drop out prob drop_input=0.25
+     num_f = 32
+     params_for_test is a dictionary for receiving configuration specific params.
+     like init sigma for focusing neuron. 
+    '''
+    drop_input=0.25
+    convlayer = lasagne.layers.Conv2DLayer
+    poollayer= lasagne.layers.MaxPool2DLayer
+    lin =lasagne.nonlinearities.linear
+    if "cnn_num_filters" in params_for_test.keys():
+        num_f = params_for_test["cnn_num_filters"]    
+
+    #lasagne.layers.BatchNormLayer(net_layers[k-1]), nonlinearity=nonlin)
+    if oned:
+        convlayer=lasagne.layers.Conv1DLayer
+        fsize = fsize[0]
+        psize = psize[0]
+        num_dense=64
+        poollayer= lasagne.layers.MaxPool1DLayer
+    # Input layer, as usual:
+    network = lasagne.layers.InputLayer(shape=input_shape,
+                                        input_var=input_var)
+    
+    
+    #network = lasagne.layers.dropout(network, p=drop_input)
+    # This time we do not apply input dropout, as it tends to work less well
+    # for convolutional layers.
+
+    # Convolutional layer with 32 kernels of size 5x5. Strided and padded
+    # convolutions are supported as well; see the docstring.
+    network = convlayer(
+            network, num_filters=num_f, filter_size=fsize,
+            nonlinearity=nonlin,
+            W=lasagne.init.GlorotUniform())
+    
+     # Another convolution with 32 5x5 kernels, and another 2x2 pooling:
+    network = convlayer(
+            network, num_filters=num_f, filter_size=fsize,
+            nonlinearity=nonlin,
+            W=lasagne.init.GlorotUniform())
+    
+    network = poollayer(network, pool_size=psize)
+
+#    A fully-connected layer of 256 units with 50% dropout on its inputs:
+    if replace_dense_w_focus:
+       
+##=============================================================================
+#        network = lasagne.layers.DenseLayer(
+#                 lasagne.layers.dropout(network, p=.5),
+#                 num_units=num_dense,
+#                 nonlinearity=lasagne.nonlinearities.rectify)
+#         
+##=============================================================================
+#=============================================================================
+        
+        network = lasagne.layers.dropout(network, p=.5)
+        network = FocusedLayer1D(network, num_units=num_dense, 
+                                 nonlinearity=nonlin,
+                                 name='focus-0',
+                                 trainMus=True, 
+                                 trainSis=True, 
+                                 initMu='spread', 
+                                 W=lasagne.init.Constant(0.0), withWeights=True, 
+                                 bias=lasagne.init.Constant(0.0), 
+                                 initSigma=0.15, 
+                                 scaler=1.0, weight_gain=1.0,
+                                 trainScaler=False, trainWs=True)
+        
+        #network = lasagne.layers.NonlinearityLayer(
+        #        lasagne.layers.BatchNormLayer(network), nonlinearity=nonlin)
+        network = lasagne.layers.NonlinearityLayer(network, nonlinearity=nonlin)
+#=============================================================================
+        network = lasagne.layers.dropout(network, p=.5)
+        network = FocusedLayer1D(
+                network, num_units=10, nonlinearity=lasagne.nonlinearities.softmax, name='focus-1',
+                              trainMus=True, 
+                              trainSis=True, 
+                              initMu='spread', 
+                              W=lasagne.init.Constant(0.0), withWeights=True, 
+                              bias=lasagne.init.Constant(0.0), 
+                              initSigma=0.1, 
+                              scaler=1.0, weight_gain=1.0,
+                              trainScaler=False, trainWs=True)
+    else:
+            
+        network = lasagne.layers.DenseLayer(
+                lasagne.layers.dropout(network, p=.5),
+                num_units=num_dense,
+                nonlinearity=lasagne.nonlinearities.rectify)
+    
+        # And, finally, the 10-unit output layer with 50% dropout on its inputs:
+        network = lasagne.layers.DenseLayer(
+                lasagne.layers.dropout(network, p=.5),
+                num_units=10,
+                nonlinearity=lasagne.nonlinearities.softmax)
 
     return network
 
@@ -259,9 +372,10 @@ def build_fcnn_simple(input_var=None,input_shape=(None,1,28,28),
 
 
 
-def build_network_model(model, input_var, input_shape):
+def build_network_model(model, input_var, input_shape, params_for_test, verbose=True):
      # Create neural network model (depending on first command line parameter)
-    print("Building model and compiling functions...")
+    if verbose:
+        print("Building model and compiling functions...")
     if model.startswith('mlp'):
         extraparams = model.split(':', 1)
         if len(extraparams)==1:
@@ -280,6 +394,7 @@ def build_network_model(model, input_var, input_shape):
                                     update_mu=True, update_si=True,
                                     init_mu='spread',initsigma=.1,
                                     batch_norm=True)
+        
     elif model.startswith('fixed_mlp:'):
         depth, width, drop_in, drop_hid = model.split(':', 1)[1].split(',')
         depth, width, drop_in, drop_hid = int(depth), int(width), float(drop_in), float(drop_hid)
@@ -288,17 +403,20 @@ def build_network_model(model, input_var, input_shape):
                                     depth=depth, width=width, drop_input=drop_in, 
                                     drop_hidden=drop_hid, init_mu='spread',
                                     update_mu=False, update_si=False,initsigma=.1)
-    elif model == 'cnn':
-        network = build_cnn_simple(input_var,input_shape=input_shape)
+        
+    elif model == 'cnn' or model=='cnn1d' or model=='cnn2d':
+        oned=False
+        if model=='cnn1d': 
+            oned=True
+            
+        network = build_cnn_simple2(input_var,input_shape=input_shape, oned=oned, 
+                                    params_for_test=params_for_test)
         
     elif model.startswith('focused_cnn'):
-        #network = build_focused_cnn(input_var)
+        network = build_cnn_simple2(input_var,input_shape=input_shape, oned=False, 
+                                    params_for_test=params_for_test, 
+                                    replace_dense_w_focus= True)
         
-        network = build_fcnn_simple(input_var,input_shape=input_shape,
-                                    init_mu='middle_random',initsigma=.25,
-                                    update_mu=True, update_si=False)
-        print(input_shape)
-        #print("this is working")
     elif model.startswith('fixed_cnn'):
         #network = build_focused_cnn(input_var)
         network = build_fcnn_simple(input_var,input_shape=input_shape, 
@@ -316,40 +434,25 @@ def build_functions(network, input_var, target_var):
     loss = lasagne.objectives.categorical_crossentropy(prediction, target_var)
     loss = loss.mean()
     # We could add some weight decay as well here, see lasagne.regularization.
-
+    #all_layers = lasagne.layers.get_all_layers(network)
+    #l2_penalty = lasagne.regularization.regularize_layer_params(all_layers, lasagne.regularization.l2) * 0.00001
+    #loss = loss + l2_penalty
     # Create update expressions for training, i.e., how to modify the
     # parameters at each training step. Here, we'll use Stochastic Gradient
     # Descent (SGD) with Nesterov momentum, but Lasagne offers plenty more.
     params = lasagne.layers.get_all_params(network, trainable=True)
     print("Params",params)
-    
+    print("Param count:", lasagne.layers.count_params(network))
     
     LR_rate = theano.shared(np.float32(0.0),name='lr_all')
     LR_MU = theano.shared(np.float32(0.0),name='lr_mu')
     LR_SI = theano.shared(np.float32(0.0),name='lr_si')
     LR_FW = theano.shared(np.float32(0.0),name='lr_fw')
     LR_params = [LR_rate, LR_MU, LR_SI, LR_FW]
-    
-    #MO_list = [theano.shared(np.float32(0.0), name='mom-'+param.name) for param in params]
-    
-    #updates = lasagne.updates.nesterov_momentum(
-    #        loss, params, learning_rate=LR_rate, momentum=0.9)
-    #updates = lasagne.updates.adam(loss, params, learning_rate=0.0001)
-    #updates = sgdWithLrLayers(loss, params, learning_rate=LR_rate, 
-    #                     mu_lr=LR_rate, si_lr=LR_rate*.1, 
-    #                     focused_w_lr=LR_rate, momentum=.90)
-    
+        
     updates = sgdWithLrsClip(loss, params, learning_rate=LR_rate, 
                          mu_lr=LR_MU, si_lr=LR_SI, 
                          focused_w_lr=LR_FW, momentum=.90)
-
-    #==========Weight Suppressing
-    
-    #updates = sgdWithWeightSupress(loss, params, learning_rate=LR_rate, 
-    #                     mu_lr=LR_MU, si_lr=LR_SI, 
-    #                     focused_w_lr=LR_FW, momentum=.90)
-    
-    #=============================================================================
 
     # Create a loss expression for validation/testing. The crucial difference
     # here is that we do a deterministic forward pass through the network,
@@ -378,39 +481,49 @@ def build_functions(network, input_var, target_var):
 # more functions to better separate the code, but it wouldn't make it any
 # easier to read.
     
-def main(model='mlp', num_epochs=500, dataset='mnist', folder="", exp_start_time=None):
+def main(model='mlp', num_epochs=500, dataset='mnist', folder="", exp_start_time=None, verbose=False):
     # Load the dataset
     print("Loading data...")
     #X_train, y_train, X_val, y_val, X_test, y_test = load_dataset()
-    if dataset== 'mnist':
+    params_for_test ={}
+
+    if dataset == 'mnist':
         X_train, y_train, X_val, y_val, X_test, y_test = load_dataset_mnist(folder='../datasets/mnist/')
-    elif dataset== 'mnist_cluttered':
+    elif dataset == 'mnist_cluttered':
         X_train, y_train, X_val, y_val, X_test, y_test = load_dataset_mnist_cluttered(folder='../datasets/mnist/')
     elif dataset == 'cifar10':
         X_train, y_train, X_val, y_val, X_test, y_test = load_dataset_cifar10(folder='../datasets/cifar10/')
+        params_for_test["cnn_num_filters"]=32
     elif dataset == 'fashion':
         X_train, y_train, X_val, y_val, X_test, y_test = load_dataset_fashion(folder='../datasets/cifar10/')
-        
-    print("mean:",np.mean(X_train))
-    print("max:",np.max(X_train))
-    print("var:",np.var(X_train))
-    print("shape:", np.shape(X_train))
+    
+    if verbose: 
+        print("Data mean:",np.mean(X_train))
+        print("Data max:",np.max(X_train))
+        print("Data var:",np.var(X_train))
+        print("Data shape:", np.shape(X_train))
 
     # Prepare Theano variables for inputs and targets
     input_var = T.tensor4('inputs')
-    target_var = T.ivector('targets')
-    print(X_train.shape)
+    target_var = T.ivector('targets')    
     input_shape= (None, X_train.shape[1],X_train.shape[2],X_train.shape[3])
     
-    print("Shape", input_shape)
     
-    network = build_network_model(model, input_var, input_shape)
+    if model == 'cnn1d':
+        input_var = T.tensor3('inputs')
+        input_shape= (None, X_train.shape[1],X_train.shape[2]*X_train.shape[3])
+        X_train = np.reshape(X_train,(X_train.shape[0],X_train.shape[1],X_train.shape[2]*X_train.shape[3]))
+        X_val = np.reshape(X_val,(X_val.shape[0],X_val.shape[1],X_val.shape[2]*X_val.shape[3]))
+        X_test = np.reshape(X_test,(X_test.shape[0],X_test.shape[1],X_test.shape[2]*X_test.shape[3]))
+    
+    network = build_network_model(model, input_var, input_shape, params_for_test)
     
     train_fn, eval_fn, LR_params = build_functions(network, input_var, target_var)
 
    
     # Finally, launch the training loop.
-    print("Starting training...")
+    if verbose:
+        print("Starting training...")
     # Prepare the lists to store performance
     val_acc_list =[]
     tst_acc_list =[] 
@@ -427,7 +540,10 @@ def main(model='mlp', num_epochs=500, dataset='mnist', folder="", exp_start_time
     lr_si_decay = 0.9
     lr_fw = 0.1 # focus weights
     lr_fw_decay = .9
-    decay_epoch =100
+    decay_epoch = 100
+    
+    # this is the learning rate decay function.
+    decay_check = lambda x: x==decay_epoch
 #   
     if dataset == 'fashion':
         lr_mu = 0.1 
@@ -438,14 +554,24 @@ def main(model='mlp', num_epochs=500, dataset='mnist', folder="", exp_start_time
     if model.find('cnn')>=0:
         lr_all = 0.01
         lr_all_decay = .9
-    
+        
         lr_mu = 0.01
         lr_mu_decay = 0.9
-        lr_si = 0.0001
+        lr_si = 0.001
         lr_si_decay = 0.9
         lr_fw = 0.01
         lr_fw_decay = .9
-        decay_epoch =40
+        decay_epoch = 40
+        
+    if dataset =='cifar10':
+        decay_epoch = 10
+        lr_mu = 0.01
+        lr_mu_decay = 0.75
+        lr_si = 0.01
+        lr_si_decay = 0.75
+        lr_fw = 0.01
+        lr_fw_decay = .75
+        decay_check = lambda x: x>decay_epoch and x%decay_epoch==1
         '''
         lr_all  new value: 0.01
         lr_mu  new value: 0.01
@@ -465,7 +591,8 @@ def main(model='mlp', num_epochs=500, dataset='mnist', folder="", exp_start_time
     #batch_num = 16
     print_int = 20
     debug_params_save = False
-    
+    debug_print_param_stats =False
+  
     for epoch in range(num_epochs):
         # In each epoch, we do a full pass over the training data:
         train_err = 0
@@ -476,17 +603,21 @@ def main(model='mlp', num_epochs=500, dataset='mnist', folder="", exp_start_time
                               'focus-1.si','focus-1.W']
             param_list.append(get_params_values_wkey(all_params,record_params ))
         
-        if (epoch>10 and epoch==decay_epoch):
+        if decay_check(epoch):
    
             lr_all = lr_all*lr_all_decay
             lr_fw= lr_fw*lr_fw_decay
             lr_mu= lr_mu*lr_mu_decay
             lr_si= lr_si*lr_si_decay        
             set_params_value(LR_params,[lr_all,lr_mu,lr_si,lr_fw])
-    
+        
         for batch in iterate_minibatches(X_train, y_train, batch_num, shuffle=True):
             inputs, targets = batch
-            train_err += train_fn(inputs, targets)
+            if epoch==0:
+                err, acc = eval_fn(inputs, targets)
+                train_err +=err
+            else:                
+                train_err += train_fn(inputs, targets)
             train_batches += 1
         
         trn_err_list.append(train_err/train_batches)
@@ -495,7 +626,7 @@ def main(model='mlp', num_epochs=500, dataset='mnist', folder="", exp_start_time
         val_err = 0
         val_acc = 0
         val_batches = 0
-        for batch in iterate_minibatches(X_val, y_val, y_val.shape[0]//2, shuffle=False):
+        for batch in iterate_minibatches(X_val, y_val, y_val.shape[0]//4, shuffle=False):
             inputs, targets = batch
             err, acc = eval_fn(inputs, targets)
             val_err += err
@@ -503,32 +634,48 @@ def main(model='mlp', num_epochs=500, dataset='mnist', folder="", exp_start_time
             val_batches += 1
 
         # Then we print the results for this epoch:
-        if (epoch%print_int==0):
-            print("Model {} Epoch {} of {} took {:.3f}s".format(model, epoch + 1, num_epochs, time.time() - start_time))
+        if (epoch%print_int==0 or epoch==1):
+            print("Model {} Epoch {} of {} took {:.3f}s".format(model, epoch, num_epochs, time.time() - start_time))
             print("  training loss:\t\t{:.6f}".format(train_err / train_batches))
             print("  validation loss:\t\t{:.6f}".format(val_err / val_batches))
             print("  validation accuracy:\t\t{:.2f} %".format(val_acc / val_batches * 100))
-            debug_print_param_stats(network)
+            if debug_print_param_stats:
+                debug_print_param_stats(network)
 
         
         val_acc_list.append(val_acc / val_batches * 100)
         val_err_list.append(val_err / val_batches)
         if np.isnan(train_err):
             break
-        tst_err, tst_acc = eval_fn(X_test, y_test)
-        tst_acc_list.append(tst_acc * 100) # to pick the tst error at best val accuracy. 
+         
+        tst_err  = 0
+        tst_acc = 0
+        tst_batches = 0
+        for batch in iterate_minibatches(X_test, y_test, y_test.shape[0]//4, shuffle=False):
+             inputs, targets = batch
+             err, acc = eval_fn(inputs, targets)
+             tst_err += err
+             tst_acc += acc
+             tst_batches += 1
+        
+        tst_acc_list.append(tst_acc /tst_batches* 100) # to pick the tst error at best val accuracy. 
+        tst_err_fin = tst_err / tst_batches
+        tst_acc_fin = tst_acc / tst_batches * 100
     
     # After training, we compute and print the test error:    
+    #print(val_acc_list)
     val_ac_np = np.asarray(val_acc_list)
     best_val = np.argmax(val_ac_np)
     if np.isnan(train_err):
         return
-    tst_err_fin, tst_acc_fin = eval_fn(X_test, y_test)
+        
+    
     print("\nFinal results:")
     print("  test loss:\t\t\t{:.6f}".format(tst_err_fin))
-    print("  test accuracy:\t\t{:.2f} %".format(tst_acc_fin * 100))
+    print("  test accuracy:\t\t{:.2f} %".format(tst_acc_fin))
     
     print("\nTest result at best val epoch: ", best_val)
+    #print(tst_acc_list)
     print("  test accuracy:\t\t{:.2f} %".format(tst_acc_list[best_val]))
     best_test_early_stop = tst_acc_list[best_val]
     from datetime import datetime
@@ -548,7 +695,7 @@ def main(model='mlp', num_epochs=500, dataset='mnist', folder="", exp_start_time
     if os.path.exists(folder):
         filename= str(folder+dataset+"_model_"+model+"_"+timestr)
     else:
-        filename= str(dataset+"_model_"+model+"_"+timestr)
+        filename= str('outputs/'+dataset+"_model_"+model+"_"+timestr)
     
     fixed_params = lasagne.layers.get_all_params(network, trainable=False)
     fixed_params =[t.name for t in fixed_params]
@@ -593,6 +740,8 @@ if __name__ == '__main__':
         print("DELAY: delay in hours to start the experiment. write 0.5 for an half an hour delay")
         print("example:")
         print("run mnist.py focused_mlp:2,800,0.25,0.25 10 1 mnist mnist10 0.0")
+        print("for cnn:")
+        print("run mnist.py cnn2d 350 5 cifar10 cifar 0.0")
     else:
         kwargs = {}
         n_reps = 1

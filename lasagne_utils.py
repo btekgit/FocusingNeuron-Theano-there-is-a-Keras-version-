@@ -158,7 +158,7 @@ def set_params_wkey(LR_params, key_list, val_list, verbose=True):
             if par.name.find(key)>=0:
                 par.set_value(np.float32(val))
                 if verbose:
-                    print('masking', par.name, " new value:", par.get_value())
+                    print('masking', par.name, " set to new value:", par.get_value())
     
     
 
@@ -230,7 +230,7 @@ def sgdWithLrs(loss_or_grads, params, learning_rate=.01, mu_lr=.01, si_lr=.001,
             updates[param] = param - si_lr * grad
             #momentum_params_list.append(param)
    
-        elif param.name.find('focus')>=0 and param.name.find('W')>=0:
+        elif param.name.find('focus')>=0:
             updates[param] = param - (focused_w_lr * grad)
             momentum_params_list.append(param)
    
@@ -241,7 +241,7 @@ def sgdWithLrs(loss_or_grads, params, learning_rate=.01, mu_lr=.01, si_lr=.001,
     return apply_momentum(updates, params=momentum_params_list, momentum=momentum)
 
 def sgdWithLrsClip(loss_or_grads, params, learning_rate=.01, mu_lr=.01, si_lr=.001, 
-               focused_w_lr=.01, momentum=.9):
+               focused_w_lr=.01, momentum=.9, verbose=False):
     '''
     Sames as sgdWithLrs bu applies clips after updates
     '''
@@ -250,19 +250,26 @@ def sgdWithLrsClip(loss_or_grads, params, learning_rate=.01, mu_lr=.01, si_lr=.0
     grads = get_or_compute_grads(loss_or_grads, params)
     updates = OrderedDict()
     #momentum_params_list =[]
-    print("Params List",params)
+    f32=np.float32
+    if verbose:
+        print("Params List",params)
     for param, grad in zip(params, grads):
+        if verbose:
+            print("param name", param.name, "shape:", param.eval().shape)
+        #print("param name", param.name, "shape:", param.get_value().shape)
+        
+
         
         #grad = clip_tensor(grad, -0.001, 0.001)
         if param.name.find('focus')>=0 and param.name.find('mu')>=0:
             updates[param] = param - mu_lr * grad
             updates = apply_momentum(updates, params=[param], momentum=momentum)
-            updates[param] =clip_tensor(updates[param], np.float32(0.01), np.float32(0.99))
+            updates[param] =clip_tensor(updates[param], f32(0.01), f32(0.99))
 
         elif param.name.find('focus')>=0 and param.name.find('si')>=0:
             updates[param] = param - si_lr * grad
             updates = apply_momentum(updates, params=[param], momentum=momentum)
-            updates[param] =clip_tensor(updates[param], 0.01, 0.5)
+            updates[param] =clip_tensor(updates[param], f32(0.01), f32(0.5))
             
         elif param.name.find('focus')>=0 and param.name.find('W')>=0:
             updates[param] = param - (focused_w_lr * grad)
@@ -342,10 +349,11 @@ def sgdWithLrLayers(loss_or_grads, params, learning_rate=.01, mu_lr=.01, si_lr=.
 
 
 def sgdWithWeightSupress(loss_or_grads, params, learning_rate=.01, mu_lr=.01, si_lr=.001, 
-               focused_w_lr=.01, momentum=.9):
+               focused_w_lr=.01, momentum=.9, verbose=False):
     ''' this update function masks focus weights after they are updated.
     The idea is that weights outside of the focus function must be suppressed
-    to prevent weight memory when focus changes its position
+    to prevent weight memory when focus changes it            print("Hey weight shape::",mu_si_w[param.name].shape)
+s position
     
     To do this I get mu and si values of the focus layer, calculate a Gauss,
     window scale it so the center is 1 but outside is close to 0, and then multiply
@@ -356,7 +364,8 @@ def sgdWithWeightSupress(loss_or_grads, params, learning_rate=.01, mu_lr=.01, si
     grads = get_or_compute_grads(loss_or_grads, params)
     updates = OrderedDict()
     #momentum_params_list =[]
-    print(params)
+    if verbose:
+        print(params)
     for param, grad in zip(params, grads):
         
         #grad = clip_tensor(grad, -0.001, 0.001)
@@ -375,14 +384,10 @@ def sgdWithWeightSupress(loss_or_grads, params, learning_rate=.01, mu_lr=.01, si
             mu_name = param_layer_name +'.mu'
             
             si_name = param_layer_name+".si"
-            print("Hey::",param.name, " ", mu_name, " ",si_name, " w shape ", param.shape)
             mu_si_w = get_params_values_wkey(params,[mu_name,si_name, param.name])
-            print("Hey weight shape::",mu_si_w[param.name].shape)
-
             from focusing import U_numeric
             us = U_numeric(np.linspace(0,1,mu_si_w[param.name].shape[0]),mu_si_w[mu_name],
                            mu_si_w[si_name],1, normed=False)
-            print("Hey us shape::",us.shape)
             
             updates[param] = (param - (focused_w_lr * grad))
             
