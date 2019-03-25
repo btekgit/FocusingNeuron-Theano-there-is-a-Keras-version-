@@ -220,6 +220,7 @@ class FocusedLayer1D(Layer):
             # this was the mnist8 result
             
             std = self.weight_gain * np.sqrt(6.0) / np.sqrt(fan_in+fan_out)
+            #std = self.weight_gain * np.sqrt(6.0) / np.sqrt(fan_in)
             w_vec = np.random.uniform(low=-std,high=std,size=(wu.shape[0],))
             #print ("std: ", std, "fan_in: ", fan_in)
             
@@ -405,7 +406,8 @@ def U_numeric(idxs, mus, sis, scaler, normed=True):
     ex = np.exp(-up / down)
     
     if normed:
-        sums = np.sum(ex**2,axis=1)
+    
+        sums = np.sqrt(np.sum(ex**2,axis=1))
         # current focus normalizes each neuron to receive one full 
         ex /= sums[:,np.newaxis]
         num_incoming = idxs.shape[0]

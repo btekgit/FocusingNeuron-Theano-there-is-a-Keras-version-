@@ -162,7 +162,7 @@ def set_params_wkey(LR_params, key_list, val_list, verbose=True):
     
     
 
-def debug_print_param_stats(network):
+def print_param_stats(network):
     ''' prints all network varibles' simple statistics
     '''
     all_params = lasagne.layers.get_all_params(network, trainable=True)

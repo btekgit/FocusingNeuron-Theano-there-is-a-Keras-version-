@@ -100,12 +100,12 @@ def reshape_and_standardize(trn, tst, standardize_by_stats=False,columns=True, v
         if (columns):
             trn, tst,_ = standarize_columns(trn, tst)# this normalizes each data column
         else:
-            trn, tst,_ = standarize_whole(trn,tst) # this one is not really a normalization
+            trn, tst,_ = standarize_whole(trn,tst) # this one treats whole image as a single random variable a normalization
             
     else:
         # input is image 
         # this does not take mean and variance into account
-        # but works good with images. 
+        # but works ok with images.  Mean is not zero, ,variance is not standard
         trn, tst,_ = standarize_image_025(trn, tst)
         
     if verbose:
@@ -123,8 +123,8 @@ def print_x_i_mean_variance(X): # incomplete code
     #Xcol = np.reshape(X,(-1,X.shape[-1]*X.shape[-2]))
     mns =np.mean(X,axis=0)
     vrs = np.var(X,axis=0)
-    print("means mx,mean, min:",np.max(mns), np.mean(mns), np.min(mns))
-    print("vars mx,meann, min:",np.max(vrs), np.mean(vrs), np.min(vrs))
+    print("means mx, mean, min:",np.max(mns), np.mean(mns), np.min(mns))
+    print("vars mx, mean, min:",np.max(vrs), np.mean(vrs), np.min(vrs))
 
 #def x_i_zero_mean_unit_variance(X1, X2, verbose=False):   
 #    
@@ -251,7 +251,7 @@ def load_dataset_mnist(folder=""):
         # The inputs come as bytes, we convert them to float32 in range [0,1].
         # (Actually to range [0, 255/256], for compatibility to the version
         # provided at http://deeplearning.net/data/mnist/mnist.pkl.gz.)
-        return data / np.float32(256)
+        return data 
 
     def load_mnist_labels(filename):
         if not os.path.exists(filename):
@@ -262,27 +262,53 @@ def load_dataset_mnist(folder=""):
         # The labels are vectors of integers now, that's exactly what we want.
         return data
         
-    fname = folder+"mnist.npz"
-    if not os.path.exists(fname):
-        download(fname, folder=folder)
-    else:
-        data = np.load(fname)
-        print("Dataset Loaded")
     
-    X_train, y_train = data['x_train'], data['y_train']
-    X_test, y_test = data['x_test'], data['y_test']
+    fname = folder+"mnist.npz"
+    print(fname)
+    if not os.path.exists(fname): #and not os.path.exists('train-images-idx3-ubyte.gz') :
+        print(fname+" does not exist. Searching current dir") 
+        if not os.path.exists('train-images-idx3-ubyte.gz'):
+            download('train-images-idx3-ubyte.gz')
+            download('train-labels-idx1-ubyte.gz')
+        if not os.path.exists('t10k-images-idx3-ubyte.gz'):            
+            download('t10k-images-idx3-ubyte.gz')
+            download('t10k-labels-idx1-ubyte.gz')
+        X_train = load_mnist_images('train-images-idx3-ubyte.gz')
+        y_train = load_mnist_labels('train-labels-idx1-ubyte.gz')
+        X_test = load_mnist_images('t10k-images-idx3-ubyte.gz')
+        y_test = load_mnist_labels('t10k-labels-idx1-ubyte.gz')
+        print_x_i_mean_variance(X_train)
+        print('Standardazing data')
+        X_train, X_test  = reshape_and_standardize(X_train, X_test,standardize_by_stats=False,columns=True)
+        print_x_i_mean_variance(X_train)
+    else:
+        try:
+            data = np.load(fname)
+            X_train, X_test  = reshape_and_standardize(X_train, X_test,standardize_by_stats=False, columns=True)
+            print_x_i_mean_variance(X_train)
+        except:
+            print("external dataset folder not found trying current folder") 
+            
+            print("Dataset Loaded")
+            X_train, y_train = data['x_train'], data['y_train']
+            X_test, y_test = data['x_test'], data['y_test']
     
     #X_t = np.concatenate((X_train,X_test),axis=0)
     #print_x_i_mean_variance(X_t)
     #X_t=x_i_zero_mean_unit_variance(X_t)
-    #print_x_i_mean_variance(X_t)
+    #print_x_i_mean_variance(X_t)if not os.path.exists(fname):
     #X_train, X_test =X_t[:-10000,:,:], X_t[-10000:,:,:]
     # do not standardize data with mean variance of columns as it blows the joint image 
-    X_train, X_test  = reshape_and_standardize(X_train, X_test,standardize_by_stats=False, columns=True)
     
     
-    X_train, X_valid = X_train[:-10000], X_train[-10000:]
-    y_train, y_valid = y_train[:-10000], y_train[-10000:]
+    N = 10000
+    random_i = np.random.permutation(X_train.shape[0])
+    print('Shufffling instances before validation cut')
+    X_train = X_train[random_i]
+    y_train = y_train[random_i]
+    print('Cutting '+str(N)+ ' samples for validation')
+    X_train, X_valid = X_train[:-N], X_train[-N:]
+    y_train, y_valid = y_train[:-N], y_train[-N:]
     pltFigures=False
     if pltFigures:
         import matplotlib.pyplot as plt

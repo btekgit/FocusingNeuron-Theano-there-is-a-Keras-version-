@@ -11,7 +11,7 @@ adapted on Thu Apr 19 18:36:12 2018
 
 import os
 if 'THEANO_FLAGS' not in os.environ.keys():
-    os.environ['THEANO_FLAGS']='device=cuda0, floatX=float32, gpuarray.preallocate=.1'
+    os.environ['THEANO_FLAGS']='device=cuda1, floatX=float32, gpuarray.preallocate=.1'
 os.environ['MKL_THREADING_LAYER']='GNU'
 import time
 import lasagne
@@ -23,7 +23,7 @@ import sys
 from focusing import FocusedLayer1D, U_numeric
 from lasagne_utils import sgdWithLrsClip,categorical_focal_loss,\
 get_shared_by_pattern,sgdWithLrs,iterate_minibatches,set_params_value,\
-debug_print_param_stats, get_params_values_wkey, sgdWithWeightSupress
+print_param_stats, get_params_values_wkey, sgdWithWeightSupress
 
 
 from data_utils import load_dataset_mnist, load_dataset_mnist_cluttered,\
@@ -486,16 +486,24 @@ def main(model='mlp', num_epochs=500, dataset='mnist', folder="", exp_start_time
     print("Loading data...")
     #X_train, y_train, X_val, y_val, X_test, y_test = load_dataset()
     params_for_test ={}
-
+    
+    data_root = '../datasets/image/'
+    if not os.path.exists(data_root):
+        print('This code searches for data in \n \'data_root\'='+data_root+'\n folder. '+
+              'Data must be packed in .npz (keras packed) archive. E.g. mnist.npz, cifar10.npz')
+        print('To test on different data download or provide npz files.')
+        print('You can change \'data_root\' folder ')
+        data_root =''
+            
     if dataset == 'mnist':
-        X_train, y_train, X_val, y_val, X_test, y_test = load_dataset_mnist(folder='../datasets/mnist/')
+        X_train, y_train, X_val, y_val, X_test, y_test = load_dataset_mnist(folder=data_root)
     elif dataset == 'mnist_cluttered':
-        X_train, y_train, X_val, y_val, X_test, y_test = load_dataset_mnist_cluttered(folder='../datasets/mnist/')
+        X_train, y_train, X_val, y_val, X_test, y_test = load_dataset_mnist_cluttered(folder=data_root)
     elif dataset == 'cifar10':
-        X_train, y_train, X_val, y_val, X_test, y_test = load_dataset_cifar10(folder='../datasets/cifar10/')
+        X_train, y_train, X_val, y_val, X_test, y_test = load_dataset_cifar10(folder=data_root)
         params_for_test["cnn_num_filters"]=32
     elif dataset == 'fashion':
-        X_train, y_train, X_val, y_val, X_test, y_test = load_dataset_fashion(folder='../datasets/cifar10/')
+        X_train, y_train, X_val, y_val, X_test, y_test = load_dataset_fashion(folder=data_root)
     
     if verbose: 
         print("Data mean:",np.mean(X_train))
@@ -591,7 +599,7 @@ def main(model='mlp', num_epochs=500, dataset='mnist', folder="", exp_start_time
     #batch_num = 16
     print_int = 20
     debug_params_save = False
-    debug_print_param_stats =False
+    debug_print_param_stats = False
   
     for epoch in range(num_epochs):
         # In each epoch, we do a full pass over the training data:
@@ -640,7 +648,7 @@ def main(model='mlp', num_epochs=500, dataset='mnist', folder="", exp_start_time
             print("  validation loss:\t\t{:.6f}".format(val_err / val_batches))
             print("  validation accuracy:\t\t{:.2f} %".format(val_acc / val_batches * 100))
             if debug_print_param_stats:
-                debug_print_param_stats(network)
+                print_param_stats(network)
 
         
         val_acc_list.append(val_acc / val_batches * 100)
@@ -770,7 +778,9 @@ if __name__ == '__main__':
         time.sleep(3600*float(kwargs['delay']))
     
         # prepare destination folder
-        kwargs['folder'] = 'outputs/ESNN/'+kwargs['exname']
+        #kwargs['folder'] = 'outputs/ESNN/'+kwargs['exname']
+        kwargs['folder'] = 'outputs/'+kwargs['exname']
+        
     
         #put a random seed.
         RANDSEED = 41
@@ -781,10 +791,16 @@ if __name__ == '__main__':
         timestr = now.strftime("%Y%m%d-%H%M%S")
         # get the code for this run.
         from shutil import copyfile
+        if not os.path.exists('outputs'):
+            os.mkdir('outputs')
+        if not os.path.exists(kwargs['folder']):
+            os.mkdir(kwargs['folder'])
+            
         if os.path.exists(kwargs['folder']):
+            print(kwargs['folder'] +"code_"+"mnist_"+kwargs['model']+timestr+".py")
             copyfile("mnist.py", kwargs['folder'] +"code_"+"mnist_"+kwargs['model']+timestr+".py")
     
         for i in range(n_reps):
-            print("Repetition: ",i)
+            print("Repetition: ",i+1)
             main(model=kwargs['model'], num_epochs=kwargs['num_epochs'], 
                  dataset=kwargs['dataset'], folder=kwargs['folder'],exp_start_time=str(timestr))
