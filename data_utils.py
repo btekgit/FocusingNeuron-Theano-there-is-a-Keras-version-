@@ -284,15 +284,17 @@ def load_dataset_mnist(folder=""):
     else:
         try:
             data = np.load(fname)
-            X_train, X_test  = reshape_and_standardize(X_train, X_test,standardize_by_stats=False, columns=True)
-            print_x_i_mean_variance(X_train)
-        except:
-            print("external dataset folder not found trying current folder") 
-            
             print("Dataset Loaded")
-            X_train, y_train = data['x_train'], data['y_train']
-            X_test, y_test = data['x_test'], data['y_test']
-    
+        except:
+            print("mnist.npz does not exist in the given dataset folder, trying current folder") 
+            data = np.load("mnist.npz")
+            
+        X_train, y_train = data['x_train'], data['y_train']
+        X_test, y_test = data['x_test'], data['y_test']
+        X_train, X_test  = reshape_and_standardize(X_train, X_test,standardize_by_stats=False, columns=True)
+        print_x_i_mean_variance(X_train)
+        #print("Dataset Loaded")
+        
     #X_t = np.concatenate((X_train,X_test),axis=0)
     #print_x_i_mean_variance(X_t)
     #X_t=x_i_zero_mean_unit_variance(X_t)
@@ -430,17 +432,24 @@ def load_blob(classes=3, features=10, samples=10, random_state=0,
     Noise added standardized/normalized datasets dict
     separating train test samples and labels
     """
-    samples = int(samples / .7)  # 30% for test
+    #samples = int(samples / .7)  # 30% for test
+    print("values:", features, classes,clusters)
     xs, ys = make_classification(n_samples=samples, n_features=features, 
-                                 n_informative=features, n_redundant=0, 
+                                 n_informative=features, n_redundant=0, n_repeated=0,
                                  n_classes=classes, n_clusters_per_class=clusters)
+    
+    
     ys = np.float32(ys)
     
-    xs = add_noisy_dims(xs, noise_dims, noise_scale, noise_pattern)
+    if noise_dims>0:
+        #print("here",noise_dims)
+        xs = add_noisy_dims(xs, noise_dims, noise_scale, noise_pattern)
     
     
     
-    X_train, X_test, y_train, y_test = train_test_split(xs, ys.squeeze(), test_size=0.3, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(xs, ys.squeeze(), 
+                                                        test_size=0.3, 
+                                                        random_state=random_state)
     
     # now normalize all
     scaler = StandardScaler()
