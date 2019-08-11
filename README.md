@@ -13,6 +13,7 @@ Notes:
 
 Depends on other libraries: numpy, scikit, theano, lasagne
 
+#### UPDATE Aug 2019 : Keras version is available, you can run the test with Kfocusing.py (+keras_utis.py)
 
 ### EXAMPLES
 
