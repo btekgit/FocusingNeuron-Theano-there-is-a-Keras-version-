@@ -40,3 +40,21 @@ Note: mnist_cluttered data is difficult to find in internet again. Email me if y
 
 ### EXPERIMENTS
 Repeated trial experiments are implemented .sh files. Contains my local directory references.
+
+
+### UPDATE AUG 2019:
+I have added keras implementations and some new ipynb for experiments:
+- Kfocusing: the focusing neuron layer class file, include a unit test (Requires included keras_utils.py)
+- KfocusingTransder: test focusing neuron in transfer learning with keras.applications  and pretrained models (VGG1-16)
+- Boston experiment notebook
+- Reuters experiment notebook (however, theano and python version worked better)
+
+- Random_Syntethic_Tests-master-forPaper-ready.ipynb  repeats the synthetic experiments
+
+- Focusing_Network_Test_Single_Run-Mnist-For-Paper-ready.ipynb repeats a single run MNIST experiment
+
+- USE dense-nn-weights-mnist-eng-ready.ipynb to experiment on Dense network Weights with noise PADDED MNIST
+
+- NOTE Keras versions can be run in GOOGLE colab
+
+
