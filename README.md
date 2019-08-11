@@ -15,6 +15,11 @@ Depends on other libraries: numpy, scikit, theano, lasagne
 
 #### UPDATE Aug 2019 : Keras version is available, you can run the test with Kfocusing.py (+keras_utis.py)
 
+#### Some experiment jupyter notebooks are provided in experiment-notebooks folder. 
+To run in Google colab you must upload Kfocusing.py and keras_utils.py for Keras based.
+
+
+
 ### EXAMPLES
 
 - Quick example runs on synthetically generated classication datasets:
