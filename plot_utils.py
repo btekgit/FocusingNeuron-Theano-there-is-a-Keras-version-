@@ -18,7 +18,7 @@ def paper_fig_settings(addtosize=0):
     plt.rc('xtick', labelsize=12+addtosize)
     plt.rc('ytick', labelsize=12+addtosize)
     plt.rc('axes', labelsize=14+addtosize)
-    plt.rc('legend', fontsize=14+addtosize)
+    plt.rc('legend', fontsize=10+addtosize)
     #plt.rc('text.latex', preamble=r'\usepackage{cmbright}')
 
 from datetime import datetime

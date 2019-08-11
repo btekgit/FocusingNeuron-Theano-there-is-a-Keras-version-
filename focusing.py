@@ -406,7 +406,6 @@ def U_numeric(idxs, mus, sis, scaler, normed=True):
     ex = np.exp(-up / down)
     
     if normed:
-    
         sums = np.sqrt(np.sum(ex**2,axis=1))
         # current focus normalizes each neuron to receive one full 
         ex /= sums[:,np.newaxis]

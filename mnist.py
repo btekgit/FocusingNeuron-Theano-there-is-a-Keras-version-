@@ -11,7 +11,7 @@ adapted on Thu Apr 19 18:36:12 2018
 
 import os
 if 'THEANO_FLAGS' not in os.environ.keys():
-    os.environ['THEANO_FLAGS']='device=cuda1, floatX=float32, gpuarray.preallocate=.1'
+    os.environ['THEANO_FLAGS']='device=cuda0, floatX=float32, gpuarray.preallocate=.1'
 os.environ['MKL_THREADING_LAYER']='GNU'
 import time
 import lasagne
@@ -542,11 +542,11 @@ def main(model='mlp', num_epochs=500, dataset='mnist', folder="", exp_start_time
     # learning rates 
     lr_all = 0.1 # this affect all non-focus variables
     lr_all_decay = .9    
-    lr_mu = 0.01  # focus center
+    lr_mu = lr_all*0.1
     lr_mu_decay = 0.9
-    lr_si = 0.001 # focus aperture
+    lr_si = lr_all*0.01 # focus aperture
     lr_si_decay = 0.9
-    lr_fw = 0.1 # focus weights
+    lr_fw = lr_all # focus weights
     lr_fw_decay = .9
     decay_epoch = 100
     
@@ -554,30 +554,30 @@ def main(model='mlp', num_epochs=500, dataset='mnist', folder="", exp_start_time
     decay_check = lambda x: x==decay_epoch
 #   
     if dataset == 'fashion':
-        lr_mu = 0.1 
-        lr_si = 0.01
         lr_all = 0.0005
+        lr_mu =200*lr_all
+        lr_si = 20*lr_all
         
-     
+
     if model.find('cnn')>=0:
         lr_all = 0.01
         lr_all_decay = .9
         
-        lr_mu = 0.01
+        lr_mu = lr_all
         lr_mu_decay = 0.9
-        lr_si = 0.001
+        lr_si = lr_all*0.1
         lr_si_decay = 0.9
-        lr_fw = 0.01
+        lr_fw = lr_all
         lr_fw_decay = .9
         decay_epoch = 40
         
     if dataset =='cifar10':
         decay_epoch = 10
-        lr_mu = 0.01
+        lr_mu = lr_all
         lr_mu_decay = 0.75
-        lr_si = 0.01
+        lr_si = lr_all
         lr_si_decay = 0.75
-        lr_fw = 0.01
+        lr_fw = lr_all
         lr_fw_decay = .75
         decay_check = lambda x: x>decay_epoch and x%decay_epoch==1
         '''
@@ -689,8 +689,8 @@ def main(model='mlp', num_epochs=500, dataset='mnist', folder="", exp_start_time
     from datetime import datetime
     now = datetime.now()
     timestr = now.strftime("%Y%m%d-%H%M%S")
-    print("_result_change")
-    print(start_time, timestr)
+    #print("_result_change")
+    #print(start_time, timestr)
     if os.path.exists(folder):
         filename= str(folder+dataset+"_result_"+model+"_"+exp_start_time+"_"+timestr)
     else:
@@ -773,6 +773,9 @@ if __name__ == '__main__':
         if len(sys.argv) > 6:
             kwargs['delay'] = sys.argv[6]
             print("delay", sys.argv[6])
+        if len(sys.argv) > 7:
+            kwargs['seed'] = sys.argv[7]
+            print("seed", sys.argv[7])
         
         # Sleep to delay
         time.sleep(3600*float(kwargs['delay']))
@@ -783,7 +786,10 @@ if __name__ == '__main__':
         
     
         #put a random seed.
-        RANDSEED = 41
+        if 'seed' not in kwargs:
+            RANDSEED = 41
+        else:
+            RANDSEED = kwargs['seed']
         lasagne.random.set_rng(np.random.RandomState(RANDSEED))  # Set random state so we can investigate results
         np.random.seed(RANDSEED)
         from datetime import datetime

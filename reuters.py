@@ -8,7 +8,7 @@ Created on Tue May 15 01:10:52 2018
 """
 
 import os
-os.environ['THEANO_FLAGS']='device=cuda1, gpuarray.preallocate=.1'
+os.environ['THEANO_FLAGS']='device=cuda0, floatX=float32, gpuarray.preallocate=.1'
 os.environ['MKL_THREADING_LAYER']='GNU'
 import time
 import lasagne
@@ -20,7 +20,7 @@ import sys
 from focusing import FocusedLayer1D, U_numeric
 from lasagne_utils import sgdWithLrsClip,categorical_focal_loss,\
 get_shared_by_pattern,sgdWithLrs,iterate_minibatches,set_params_value,\
-debug_print_param_stats, get_params_values_wkey
+print_param_stats, get_params_values_wkey
 
 
 from data_utils import load_dataset_reuters
@@ -446,7 +446,7 @@ def main(model='mlp', num_epochs=500, dataset='reuters', folder="", exp_start_ti
             else:
                 val_acc = 1-val_err
                 
-            debug_print_param_stats(network)
+            print_param_stats(network)
             #debug_focus_vars(network)
         
         
@@ -519,8 +519,9 @@ def main(model='mlp', num_epochs=500, dataset='reuters', folder="", exp_start_ti
 
 if __name__ == '__main__':
     if ('--help' in sys.argv) or ('-h' in sys.argv):
-        print("Trains a neural network on MNIST using Lasagne.")
+        print("Trains a neural network on Reuters using Lasagne.")
         print("Usage: %s [MODEL [EPOCHS]]" % sys.argv[0])
+        print("Example run 'reuters.py' focused_mlp:2,150,0.2,0.25 100 1 reuters")
         print()
         print("MODEL: 'mlp' for a simple Multi-Layer Perceptron (MLP),")
         print("       'custom_mlp:DEPTH,WIDTH,DROP_IN,DROP_HID' for an MLP")
