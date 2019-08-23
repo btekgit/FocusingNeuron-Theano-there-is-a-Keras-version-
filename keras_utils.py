@@ -46,8 +46,9 @@ def get_layer_weights(model,layer_name):
 def kdict(d,name_prefix=''):
     r = {}
     for k,v in d.items():
+        print("KEY VALUE PAIRS ",k,v)
         r[k] = K.variable(v, name=name_prefix+str(k).replace(':','_'))
-        return r     
+    return r     
         
 def eval_Kdict(d):
     '''evaluates all variables in a dictionary'''
@@ -135,7 +136,8 @@ def dump_keras_structure(weight_file_path):
         f.close()
         
 
-class RecordVariable(Callback):
+    
+class RecordWeights(Callback):
         def __init__(self,name,var):
             self.layername = name
             self.varname = var
@@ -158,6 +160,29 @@ class RecordVariable(Callback):
                 if (p.name.find(self.varname)>=0):
                     #print("recording", p.name)
                     self.record.append(all_weights[i])
+                    
+                    
+class RecordVariable(RecordWeights):
+        print("The name for Record Variable has changed, use RecordWeights or RecordTensor instead")
+        pass
+                    
+                    
+
+class RecordTensor(Callback):
+        print("Not working!")
+        pass
+        def __init__(self,tensor, on_batch=True,  on_epoch=False):
+            self.tensor = tensor
+            self.on_batch = on_batch
+            self.on_epoch = on_epoch
+        def setVariableName(self,tensor):
+            self.layername = tensor
+        def on_train_begin(self, logs={}):
+            self.record = []
+        def on_batch_end(self, batch, logs={}):        
+            self.record.append(K.eval(self.tensor))   
+        def on_epoch_end(self,epoch, logs={}):
+            self.record.append(K.eval(self.tensor))
                     
                     
 class PrintLayerVariableStats(Callback):
@@ -193,6 +218,44 @@ class PrintLayerVariableStats(Callback):
                     stat_str = [n+str(s(all_weights[i])) for s,n in zip(self.stat_list,self.stat_names)]
                     print("Stats for", p.name, stat_str)
                     
+class RecordFunctionOutput(Callback):
+        #print("Not working!")
+        def __init__(self,funct, avg=False):
+            self.funct = funct
+            self.sess = K.get_session()
+            self.avg=avg
+            self.count = 0
+        
+        
+        def setVariableName(self,funct):
+            self.funct = funct
+        def on_train_begin(self, logs={}):
+            self.record = []
+            self.count = 0
+            if K.backend() == 'tensorflow':
+                self.sess = K.get_session()
+        
+        def on_train_end(self, logs={}):
+            if self.avg:
+                self.record[0]/=self.count
+                
+
+        def on_batch_end(self, batch, logs={}):
+            #print("BATCH END",logs.keys())
+            #for i in range(len(logs['ins_batch'])):
+            #    print("BATCH IN shape", logs['ins_batch'][i].shape)
+            #with self.sess as sess:
+            #    acc = sess.run(self.layer.output, feed_dict={'input_1':logs['ins_batch'][0]})
+            # this is the batch input
+            inp = logs['ins_batch'][0]
+            acc = self.funct([inp])
+            if self.avg:
+                if self.record:
+                    #print("Adding")
+                    self.record[0]+=acc[0]
+
+
+
 
 class PrintAnyVariable(Callback):
         
@@ -287,11 +350,9 @@ class SGDwithLR(Optimizer):
                 print('This SGD works with dictionaries')
                 momentum = {'all',momentum}
                 #print(lr)
-                
-
-            
+        
             self.lr = kdict(lr,'lr_')
-            #print("Learning rate: ", self.lr)
+            print("LEARNING RATE: ", lr)
             self.momentum = kdict(momentum,'mom_')
             self.decay = kdict(decay,'dec_')
             self.clips = kdict(clips,'clips')
@@ -340,7 +401,7 @@ class SGDwithLR(Optimizer):
         #print(self.weights)
 
         for p, g, m in zip(params, grads, moments):
-            
+            print("HEREEEE:",p,g,m)
             if p.name in self.lr.keys():
                 print("Setting different learning rate for", p.name, ",", K.eval(self.lr[p.name]))
                 lr = self.lr[p.name]
@@ -381,7 +442,7 @@ class SGDwithLR(Optimizer):
             if getattr(p, 'constraint', None) is not None:
                 new_p = p.constraint(new_p)
             
-            if p.name in self.clips.keys():
+            if self.clips_val and (p.name in self.clips.keys()):
                 print("Clipping variable",p.name," to ", self.clips[p.name] )
                 c = K.eval(self.clips[p.name])
                 new_p = K.clip(new_p, c[0], c[1])
