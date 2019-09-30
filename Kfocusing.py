@@ -23,6 +23,7 @@ class FocusedLayer1D(Layer):
                  kernel_initializer='glorot_uniform',
                  bias_initializer='zeros',
                  kernel_regularizer=None,
+                 si_regularizer=None,
                  bias_regularizer=None,
                  activity_regularizer=None,
                  kernel_constraint=None,
@@ -48,6 +49,7 @@ class FocusedLayer1D(Layer):
         self.bias_initializer = initializers.get(bias_initializer)
         self.kernel_regularizer = regularizers.get(kernel_regularizer)
         self.bias_regularizer = regularizers.get(bias_regularizer)
+        self.si_regularizer = regularizers.get(si_regularizer)
         self.activity_regularizer = regularizers.get(activity_regularizer)
         self.kernel_constraint = constraints.get(kernel_constraint)
         self.bias_constraint = constraints.get(bias_constraint)
@@ -98,6 +100,7 @@ class FocusedLayer1D(Layer):
         self.sigma = self.add_weight(shape=(self.units,), 
                                      initializer=constant(si), 
                                      name="Sigma", 
+                                     regularizer=self.si_regularizer,
                                      trainable=self.train_sigma)
         # idx is not trainable
         
@@ -330,7 +333,8 @@ def mu_si_initializer(initMu, initSi, num_incoming, num_units, verbose=True):
             mu += (np.random.rand(len(mu))-0.5)*(1.0/(float(20.0)))  # On paper we have this initalization                
             
         elif initMu == 'spread':
-            mu = np.linspace(0.2, 0.8, num_units)
+            mu = np.linspace(0.2, 0.8, num_units)  #paper results were taken with this
+            #mu = np.linspace(0.1, 0.9, num_units)
         else:
             print(initMu, "Not Implemented")
             
@@ -369,6 +373,7 @@ def mu_si_initializer(initMu, initSi, num_incoming, num_units, verbose=True):
     return mu, si
 
 
+
 def U_numeric(idxs, mus, sis, scaler, normed=2):
     '''
     This function provides a numeric computed focus coefficient vector for
@@ -390,79 +395,157 @@ def U_numeric(idxs, mus, sis, scaler, normed=2):
     ex = np.exp(-up / down)
     
     if normed==1:
-        #sums = np.sqrt(np.sum(ex**2,axis=1))
-        # current focus normalizes each neuron to receive one full 
-        #ex /= sums[:,np.newaxis]
-        #num_incoming = idxs.shape[0]
-        #ex = ex*scaler*np.sqrt(num_incoming)
-        print('not completed')
+        ex /= np.sqrt(np.sum(np.square(ex), axis=-1,keepdims=True))
+    elif normed==2:
+        ex /= np.sqrt(np.sum(np.square(ex), axis=-1,keepdims=True))
+        ex *= np.sqrt(idxs.shape[0])
 
-    return (ex.astype(dtype='float32'))
+    return (np.transpose(ex.astype(dtype='float32')))
+
+def calculate_fi_and_weights(layer_instance):
+    ''' 
+    This aux function calculates its focus functions, focused weights for a given
+    a layer instance
+    '''
+    w = layer_instance.get_weights()
+    mu = w[0]
+    si = w[1]
+    we = w[2]
+    idxs = np.linspace(0, 1.0,layer_instance.input_shape[1])
+    fi = U_numeric(idxs, mu,si, scaler=1.0, normed=2)
+    fiwe =  fi*we
+    
+    return fi, we, fiwe
 
 
 def sqrt32(x):
     return np.sqrt(x,dtype='float32')
-
-def standarize_image_025(trn, val=None, tst=None):
-
-    K = 4.0 # 2.0 is very good with MNIST 99.20-99.19
-    M = 256.0
-    trn /= M
-    trn *=K
-    trn -= K/2.0
-    if val is not None:
-        val /= M
-        val *= K
-        val -= K/2
-    if tst is not None:
-        tst /= M
-        tst *= K
-        tst -= K/2
+  
     
-    return trn, val, tst
-
-
-
+def create_simple_model(input_shape, n_hidden=[10],num_classes=10, mod='focused'):
+    from keras.models import  Model
+    from keras.layers import Input, Dense, Dropout, Flatten, BatchNormalization
+    from keras.layers import Activation, Permute,Concatenate, MaxPool2D
+    from keras.regularizers import l2
+    node_in = Input(shape=input_shape, name='inputlayer')
+ 
+    node_fl = Flatten(data_format='channels_last')(node_in)
+    #node_fl = node_in
+    node_ = Dropout(0.2)(node_fl)
+    heu= initializers.he_uniform
+    h = 1
+    for nh in n_hidden:
+        if mod=='focused':
+            node_ = FocusedLayer1D(units=nh,
+                                      name='focus-'+str(h),
+                                      activation='linear',
+                                      init_sigma=0.025, 
+                                      init_mu='spread',
+                                      init_w= None,
+                                      train_sigma=True, 
+                                      train_weights=True,
+                                      si_regularizer=l2(1e-6),
+                                      train_mu = True,normed=2)(node_)
+        else:
+            node_ = Dense(nh,name='dense-'+str(h),activation='linear',kernel_initializer=heu())(node_)
         
-        
+        node_ = BatchNormalization()(node_)
+        node_ = Activation('relu')(node_)
+        node_ = Dropout(0.25)(node_)
+        h = h + 1
+    
+    node_fin = Dense(num_classes, name='softmax', activation='softmax', 
+                     kernel_initializer=initializers.he_uniform(),
+                    kernel_regularizer=None)(node_)
+    
+    model = Model(inputs=node_in, outputs=[node_fin])
+    
+    return model
     
 
-
-def test(dset='mnist', random_sid=9, epochs=10, 
-         data_augmentation=False,batch_size = 512, mod='focused'):
-    import keras
-    from keras.losses import mse
-    from keras.optimizers import SGD
-    from keras.datasets import mnist,fashion_mnist, cifar10
-    from keras.models import Sequential, Model
+def create_cnn_model(input_shape, nfilters=32, kn_size=(5,5), 
+                     n_hidden=10, num_classes=10, mod='focused'):
+    from keras.models import  Model
     from keras.layers import Input, Dense, Dropout, Flatten,Conv2D, BatchNormalization
-    from keras.layers import Activation, Permute,Concatenate
+    from keras.layers import Activation, Permute,Concatenate, MaxPool2D
+    from keras.regularizers import l2
+    
+    node_in = Input(shape=input_shape, name='inputlayer')
+
+    node_conv1 = Conv2D(filters=nfilters,kernel_size=kn_size, padding='same',
+                        activation='relu')(node_in)
+    node_conv2 = Conv2D(filters=nfilters,kernel_size=kn_size, padding='same',
+                        activation='relu')(node_conv1)
+    #node_conv3 = Conv2D(filters=nfilters,kernel_size=kn_size, padding='same',
+    #                    activation='relu')(node_conv2)
+
+    node_pool = MaxPool2D((2,2))(node_conv2)
+    node_fl = Flatten(data_format='channels_last')(node_pool)
+
+    #node_fl = node_in
+    # smaller initsigma does not work well. 
+    node_ = Dropout(0.5)(node_fl)
+    heu= initializers.he_uniform
+    h = 1
+    for nh in n_hidden:
+        if mod=='focused':
+            node_ = FocusedLayer1D(units=nh,
+                                   name='focus-'+str(h),
+                                   activation='linear',
+                                   init_sigma=0.025, 
+                                   init_mu=np.linspace(0.1,0.90,nh),
+                                   init_w= None,
+                                   train_sigma=True, 
+                                   train_weights=True,
+                                   si_regularizer=l2(1e-2),
+                                   train_mu = True,normed=2)(node_)
+        else:
+            node_ = Dense(nh,name='dense-'+str(h),activation='linear',
+                          kernel_initializer=heu())(node_)
+    
+    node_ = BatchNormalization()(node_)
+    node_ = Activation('relu')(node_)
+    node_ = Dropout(0.5)(node_)
+    h = h + 1
+    
+    node_fin = Dense(num_classes, name='softmax', activation='softmax', 
+                     kernel_initializer=initializers.he_uniform(),
+                     kernel_regularizer=None)(node_)
+
+    #decay_check = lambda x: x==decay_epoch
+
+    model = Model(inputs=node_in, outputs=[node_fin])
+    
+    return model
+    
+        
+
+def test_comp(dset='mnist', random_sid=9, epochs=10, n_hidden=[10],
+         data_augmentation=False, batch_size = 512, mod='focused',
+         cnn_model = False):
+    import keras
+    from keras.optimizers import SGD
+    from keras.datasets import mnist,fashion_mnist, cifar10    
     from skimage import filters
     from keras import backend as K
     from keras_utils import WeightHistory as WeightHistory
     from keras_utils import RecordVariable, \
-    PrintLayerVariableStats, PrintAnyVariable, SGDwithLR, eval_Kdict
+    PrintLayerVariableStats, PrintAnyVariable, SGDwithLR, eval_Kdict, standarize_image_025
     from keras_preprocessing.image import ImageDataGenerator
 
-    config = tf.ConfigProto()
-    config.gpu_options.per_process_gpu_memory_fraction = 0.1
+    #config = tf.ConfigProto()
+    #config.gpu_options.per_process_gpu_memory_fraction = 0.1
    # Create a session with the above options specified.
-    K.tensorflow_backend.set_session(tf.Session(config=config))
+    #K.tensorflow_backend.set_session(tf.Session(config=config))
     K.clear_session()
 
-
-    sid = random_sid
- 
-    
-    #test_acnn = True
-    
+    sid = random_sid  
     np.random.seed(sid)
     tf.random.set_random_seed(sid)
     tf.compat.v1.random.set_random_seed(sid)
     
-    from datetime import datetime
-    #$now = datetime.now()
-    
+
+    print("Loading dataset")
     if dset=='mnist':
         # input image dimensions
         img_rows, img_cols = 28, 28  
@@ -477,14 +560,27 @@ def test(dset='mnist', random_sid=9, epochs=10,
         mom_dict = {'all':0.9,'focus-1/Sigma:0': 0.9,'focus-1/Mu:0': 0.9,
                    'focus-2/Sigma:0': 0.9,'focus-2/Mu:0': 0.9}
     
-        decay_dict = {'all':0.9, 'focus-1/Sigma:0': 0.1,'focus-1/Mu:0':0.1,
-                  'focus-2/Sigma:0': 0.1,'focus-2/Mu:0': 0.1}
+        
+        decay_dict = {'all':0.9, 'focus-1/Sigma:0': 0.5,'focus-1/Mu:0':0.9,
+                  'focus-2/Sigma:0': 0.5,'focus-2/Mu:0': 0.9}
 
-        clip_dict = {'focus-1/Sigma:0':(0.05,1.0),'focus-1/Mu:0':(0.0,1.0),
-                 'focus-2/Sigma:0':(0.05,1.0),'focus-2/Mu:0':(0.0,1.0)}
+        clip_dict = {'focus-1/Sigma:0':(0.01,1.0),'focus-1/Mu:0':(0.0,1.0),
+                 'focus-2/Sigma:0':(0.01,1.0),'focus-2/Mu:0':(0.0,1.0)}
         
         e_i = x_train.shape[0] // batch_size
         decay_epochs =np.array([e_i*100, e_i*150], dtype='int64')
+        if cnn_model:
+                   
+            lr_dict = {'all':0.1,
+                   'focus-1/Sigma:0': 0.01,'focus-1/Mu:0': 0.01,'focus-1/Weights:0': 0.1,
+                   'focus-2/Sigma:0': 0.01,'focus-2/Mu:0': 0.01,'focus-2/Weights:0': 0.1}
+            # works good as high as 99.63 for cnn-focus        
+            decay_dict = {'all':0.9, 'focus-1/Sigma:0': 0.5,'focus-1/Mu:0':0.9,
+                  'focus-2/Sigma:0': 0.9,'focus-2/Mu:0': 0.9}
+
+            #decay_epochs =np.array([e_i*10,e_i*30,e_i*60,e_i*100], dtype='int64')
+            #decay_epochs =np.array([e_i*30,e_i*80,e_i*120,e_i*180], dtype='int64')
+            decay_epochs =[e_i*30,e_i*100]
     
     elif dset=='cifar10':    
         img_rows, img_cols = 32,32
@@ -492,21 +588,25 @@ def test(dset='mnist', random_sid=9, epochs=10,
         
         (x_train, y_train), (x_test, y_test) = cifar10.load_data()
         
-        lr_dict = {'all':0.001,
+        lr_dict = {'all':0.1,
                   'focus-1/Sigma:0': 0.01,'focus-1/Mu:0': 0.01,'focus-1/Weights:0': 0.1,
                   'focus-2/Sigma:0': 0.01,'focus-2/Mu:0': 0.01,'focus-2/Weights:0': 0.1}
 
         mom_dict = {'all':0.9,'focus-1/Sigma:0': 0.9,'focus-1/Mu:0': 0.9,
                    'focus-2/Sigma:0': 0.9,'focus-2/Mu:0': 0.9}
     
-        decay_dict = {'all':0.9, 'focus-1/Sigma:0': 0.1,'focus-1/Mu:0':0.1,
-                  'focus-2/Sigma:0': 0.1,'focus-2/Mu:0': 0.1}
-
-        clip_dict = {'focus-1/Sigma:0':(0.05,1.0),'focus-1/Mu:0':(0.0,1.0),
-                 'focus-2/Sigma:0':(0.05,1.0),'focus-2/Mu:0':(0.0,1.0)}
+        # works good as high as 77 for cnn-focus
+        #decay_dict = {'all':0.9, 'focus-1/Sigma:0': 1.1,'focus-1/Mu:0':0.9,
+        #          'focus-2/Sigma:0': 1.1,'focus-2/Mu:0': 0.9}
+        decay_dict = {'all':0.9, 'focus-1/Sigma:0': 0.5,'focus-1/Mu:0':0.9,
+                      'focus-2/Sigma:0': 0.5,'focus-2/Mu:0': 0.9}
+        clip_dict = {'focus-1/Sigma:0':(0.01,1.0),'focus-1/Mu:0':(0.0,1.0),
+                     'focus-2/Sigma:0':(0.01,1.0),'focus-2/Mu:0':(0.0,1.0)}
         
+        #if cnn_model: batch_size=256 # this works better than 500 for cifar-10
         e_i = x_train.shape[0] // batch_size
         decay_epochs =np.array([e_i*30,e_i*80,e_i*120,e_i*180], dtype='int64')
+        #decay_epochs =np.array([e_i*10], dtype='int64')
     
     
     num_classes = np.unique(y_train).shape[0]
@@ -520,12 +620,9 @@ def test(dset='mnist', random_sid=9, epochs=10,
         x_test = x_test.reshape(x_test.shape[0], img_rows, img_cols, n_channels)
         input_shape = (img_rows, img_cols, n_channels)
 
-   
-    
-
     x_train = x_train.astype('float32')
     x_test = x_test.astype('float32')
-    x_train, _, x_test = standarize_image_025(x_train,tst=x_test)
+    x_train, _, x_test = standarize_image_025(x_train, tst=x_test)
     x_train = x_train.reshape(x_train.shape[0], img_rows, img_cols, n_channels)
     x_test = x_test.reshape(x_test.shape[0], img_rows, img_cols, n_channels)
     input_shape = (img_rows, img_cols, n_channels)
@@ -538,75 +635,22 @@ def test(dset='mnist', random_sid=9, epochs=10,
     y_train = keras.utils.to_categorical(y_train, num_classes)
     y_test = keras.utils.to_categorical(y_test, num_classes)
 
+    if cnn_model:
+        model=create_cnn_model(input_shape,n_hidden=n_hidden, mod=mod)
+    else:
+        model=create_simple_model(input_shape,n_hidden=n_hidden, mod=mod)
     
-    node_in = Input(shape=input_shape, name='inputlayer')
-    #node_in = Dropout(0.2)(node_in)
  
-        
-
-    node_fl = Flatten(data_format='channels_last')(node_in)
-    # smaller initsigma does not work well. 
-    node_drp = Dropout(0.2)(node_fl)
-    heu= initializers.he_uniform
-    if mod=='focused':
-        node_foc = FocusedLayer1D(units=800,
-                                  name='focus-1',
-                                  activation='linear',
-                                  init_sigma=0.1, 
-                                  init_mu='spread',
-                                  init_w= None,
-                                  train_sigma=True, 
-                                  train_weights=True,
-                                  train_mu = True,normed=2)(node_drp)
-    else:
-        node_foc = Dense(800,activation='linear',kernel_initializer=heu())(node_drp)
-    
-    node_foc = BatchNormalization()(node_foc)
-    node_foc = Activation('relu')(node_foc)
-    node_foc = Dropout(0.25)(node_foc)
-    
-    if mod=='focused':
-        node_foc = FocusedLayer1D(units=800,
-                                  name='focus-2',
-                                  activation='linear',
-                                  init_sigma=0.1, 
-                                  init_mu='spread',
-                                  init_w= None,
-                                  train_sigma=True, 
-                                  train_weights=True,
-                                  train_mu = True,normed=2)(node_foc)
-    else:
-        node_foc = Dense(800,activation='linear',kernel_initializer=heu())(node_drp)
-        
-    node_foc = BatchNormalization()(node_foc)
-    node_foc = Activation('relu')(node_foc)
-    node_foc = Dropout(0.5)(node_foc)
-    #node_foc = Dense(10)(node_fl)
-    
-    node_fin = Dense(num_classes, activation='softmax', 
-                     kernel_initializer=initializers.he_uniform(),
-                    kernel_regularizer=None)(node_foc)
-    
-    
-    
-    #decay_check = lambda x: x==decay_epoch
-    opt= SGDwithLR(lr_dict, mom_dict,decay_dict,clip_dict, decay_epochs)#, decay=None)
-    
-    #opt= SGDwithLR({'all': 0.01},{'all':0.9})#, decay=None)
-    #opt= SGD(lr=0.01, momentum=0.9)#, decay=None)
-    
-    model = Model(inputs=node_in, outputs=[node_fin])
-        
     model.summary()
     
+    opt= SGDwithLR(lr_dict, mom_dict,decay_dict,clip_dict, decay_epochs)#, decay=None)
+
     model.compile(loss=keras.losses.categorical_crossentropy,
                   optimizer=opt,
                   metrics=['accuracy'])
     
     
-    #print("iterations",model.optimizer.get_updates())
-    
-    
+        
     stat_func_name = ['max: ', 'mean: ', 'min: ', 'var: ', 'std: ']
     stat_func_list = [np.max, np.mean, np.min, np.var, np.std]
     #callbacks = [tb]
@@ -618,13 +662,15 @@ def test(dset='mnist', random_sid=9, epochs=10,
         pr_3 = PrintLayerVariableStats("focus-1","Mu:0",stat_func_list,stat_func_name)
         rv_weights_1 = RecordVariable("focus-1","Weights:0")
         rv_sigma_1 = RecordVariable("focus-1","Sigma:0")
+        rv_mu_1 = RecordVariable("focus-1","Mu:0")
         print_lr_rates_callback = keras.callbacks.LambdaCallback(
                 on_epoch_end=lambda epoch, logs: print("iter: ", 
                                                        K.eval(model.optimizer.iterations),
                                                        " LR RATES :", 
                                                        eval_Kdict(model.optimizer.lr)))
     
-        callbacks+=[pr_1,pr_2,pr_3,rv_weights_1,rv_sigma_1,print_lr_rates_callback]
+        callbacks+=[pr_1,pr_2,pr_3,rv_weights_1,rv_sigma_1, rv_mu_1,
+                    print_lr_rates_callback]
     
         
     if not data_augmentation:
@@ -694,18 +740,16 @@ def test(dset='mnist', random_sid=9, epochs=10,
     score = model.evaluate(x_test, y_test, verbose=0)
     print('Test loss:', score[0])
     print('Test accuracy:', score[1])
-    return score,history,model
+    return score, history, model, callbacks
 
 
     
 
 def repeated_trials(dset='mnist',N=1, epochs=2, augment=False,delayed_start=0,
-                    mod='focused'):
+                    mod='focused', test_function=None,n_hidden=[100],
+                    cnn_model=False):
     
-    import os
-    os.environ['CUDA_VISIBLE_DEVICES']="0"
-    os.environ['TF_FORCE_GPU_ALLOW_GROWTH']="true"
-    
+  
     list_scores =[]
     list_histories =[]
     models = []
@@ -721,24 +765,72 @@ def repeated_trials(dset='mnist',N=1, epochs=2, augment=False,delayed_start=0,
     filename = 'outputs/Kfocusing/'+dset+'/'+timestr+'_'+mod+'.model_results.npz'
     copyfile("Kfocusing.py",filename+"code.py")
     for i in range(N):
-        sc, hs, ms = test(dset=dset,random_sid=i*17, epochs=epochs,
-                          data_augmentation=augment,mod=mod)
+        sc, hs, ms,cb = test_function(dset=dset,random_sid=i*17, epochs=epochs, 
+                               n_hidden=n_hidden,
+                          data_augmentation=augment,mod=mod, cnn_model=cnn_model)
         list_scores.append(sc)
         list_histories.append(hs)
-        models.append([ms])
+        models.append(ms)
     
     
     print("Final scores", list_scores,)
     mx_scores = [np.max(list_histories[i].history['val_acc']) for i in range(len(list_histories))]
+    histories = [m.history.history for m in models]
     print("Max sscores", mx_scores)
-    np.savez_compressed(filename,mx_scores =mx_scores, list_scores=list_scores, modelz=models)
-    return mx_scores, list_scores, models
+    np.savez_compressed(filename,mx_scores =mx_scores, list_scores=list_scores, 
+                        modelz=histories)
+    return mx_scores, list_scores, histories
 
 
+def train_and_visualize(dset='mnist',N=1, epochs=10, augment=False,delayed_start=0,
+                    mod='focused', test_function=None):
+ 
+
+    dset='cifar-10'
+    score, history, model = test_function(dset=dset,random_sid=i*17, epochs=epochs, 
+                               n_hidden=[800,800],
+                          data_augmentation=augment, mod=mod)
+    
+    w = model.get_weights()
+    foc_1 = model.get_layer('focus-1')
+    foc_2 = model.get_layer('focus-2')
+    
+
+    
+    
 if __name__ == "__main__":
+    import os
+    os.environ['CUDA_VISIBLE_DEVICES']="0"
+    os.environ['TF_FORCE_GPU_ALLOW_GROWTH']="true"
     print("Run as main")
     #test()
+    #dset='mnist' 
+    dset='cifar10' 
     mod='focused'
-    repeated_trials(dset='cifar10',N=5,epochs=200, augment=True, mod=mod)
-    # focused MNIST Augmented accuracy (200epochs): ~99.25-30
+    cnn_model = True 
+    nhidden=[256]
+    
+    
+    repeats = 5
+    Epochs = 200
+    f = test_comp
+    augment=False
+    res = repeated_trials(dset=dset,N=repeats,epochs=Epochs, 
+                          augment=augment, mod=mod, test_function=f,
+                          n_hidden=nhidden,
+                          cnn_model=cnn_model)
+    # focused MNIST Augmented accuracy (200epochs): ~99.25-99.30
+    # focused MNIST No Augment accuracy(200 epochs): ~99.25
+    # res = repeated_trials(dset='cifar10',N=1,epochs=200, augment=False, mod=mod, test_function=f)
     # focused CIFAR-10 Augmented accuracy(200epochs): ~0.675
+    # focused CIFAR-10 NONAugmented 63.5
+    
+    # CNN results CIFAR-10 max: 74.16 no augmentation
+    # CNN results CIFAR_10 max: 76.32 with batch:32
+    # focus mx_1 = [0.7368000005722046, 0.7413000006675721, 0.7416000005722045, 0.741200000667572, 0.7374999997138977]
+    # dense mx_2 =[0.7257999999046326, 0.7290000000953675, 0.7257999997138977, 0.7214000000953674, 0.7229000000953675]
+    
+    # CNN results MNIST  max : 99.61 focus, 99.63 dense
+    # focused mx_1 = [0.9958999999046325, 0.9958999998092651, 0.9959999999046326, 0.9960999999046326, 0.9960999999046326]
+    # dense mx_2=[Max sscores [0.9958999999046325, 0.9958999999046325, 0.9962999998092651, 0.9959999999046326, 0.9954999998092652]]
+

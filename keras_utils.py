@@ -46,7 +46,7 @@ def get_layer_weights(model,layer_name):
 def kdict(d,name_prefix=''):
     r = {}
     for k,v in d.items():
-        print("KEY VALUE PAIRS ",k,v)
+        #print("KEY VALUE PAIRS ",k,v)
         r[k] = K.variable(v, name=name_prefix+str(k).replace(':','_'))
     return r     
         
@@ -54,7 +54,61 @@ def eval_Kdict(d):
     '''evaluates all variables in a dictionary'''
     l = [str(k)+':'+str(K.eval(v)) for k,v in d.items()]
     return l
-        
+
+def standarize_image_025(trn, val=None, tst=None):
+
+    K = 4.0 # 2.0 is very good with MNIST 99.20-99.19
+    M = 256.0
+    trn /= M
+    trn *=K
+    trn -= K/2.0
+    if val is not None:
+        val /= M
+        val *= K
+        val -= K/2
+    if tst is not None:
+        tst /= M
+        tst *= K
+        tst -= K/2
+    
+    return trn, val, tst
+
+
+def dump_keras_structure(weight_file_path):
+    """
+    Prints out the structure of HDF5 file.
+
+    Args:
+      weight_file_path (str) : Path to the file to analyze
+    """
+    f = h5py.File(weight_file_path)
+    try:
+        if len(f.attrs.items()):
+            print("{} contains: ".format(weight_file_path))
+            print("Root attributes:")
+        for key, value in f.attrs.items():
+            print("  {}: {}".format(key, value))
+
+        if len(f.items())==0:
+            return 
+
+        for layer, g in f.items():
+            print("  {}".format(layer))
+            print("    Attributes:")
+            for key, value in g.attrs.items():
+                print("      {}: {}".format(key, value))
+
+            print("    Dataset:")
+            for p_name in g.keys():
+                param = g[p_name]
+                subkeys = param.keys()
+                for k_name in param.keys():
+                    print("      {}/{}: {}".format(p_name, k_name, param.get(k_name)[:]))
+    finally:
+        f.close()
+
+
+
 
 class WeightHistory(Callback):
 
@@ -102,219 +156,158 @@ class WeightHistory(Callback):
         return self.epochlist
         
 
-def dump_keras_structure(weight_file_path):
-    """
-    Prints out the structure of HDF5 file.
 
-    Args:
-      weight_file_path (str) : Path to the file to analyze
-    """
-    f = h5py.File(weight_file_path)
-    try:
-        if len(f.attrs.items()):
-            print("{} contains: ".format(weight_file_path))
-            print("Root attributes:")
-        for key, value in f.attrs.items():
-            print("  {}: {}".format(key, value))
 
-        if len(f.items())==0:
-            return 
-
-        for layer, g in f.items():
-            print("  {}".format(layer))
-            print("    Attributes:")
-            for key, value in g.attrs.items():
-                print("      {}: {}".format(key, value))
-
-            print("    Dataset:")
-            for p_name in g.keys():
-                param = g[p_name]
-                subkeys = param.keys()
-                for k_name in param.keys():
-                    print("      {}/{}: {}".format(p_name, k_name, param.get(k_name)[:]))
-    finally:
-        f.close()
-        
-
-    
 class RecordWeights(Callback):
-        def __init__(self,name,var):
-            self.layername = name
-            self.varname = var
+    def __init__(self,name,var):
+        self.layername = name
+        self.varname = var
         
-        def setVariableName(self,name, var):
-            self.layername = name
-            self.varname = var
-        def on_train_begin(self, logs={}):
-            self.record = []
+    def setVariableName(self,name, var):
+        self.layername = name
+        self.varname = var
+    def on_train_begin(self, logs={}):
+        self.record = []
+        all_params = self.model.get_layer(self.layername)._trainable_weights
+        all_weights = self.model.get_layer(self.layername).get_weights()
+
+        for i,p in enumerate(all_params):
+            #print(p.name)
+            if (p.name.find(self.varname)>=0):
+            #print("recording", p.name)
+                self.record.append(all_weights[i])
 
         #def on_batch_end(self, batch, logs={}):
         #    self.record.append(logs.get('loss'))
             
-        def on_epoch_end(self,epoch, logs={}):
-            all_params = self.model.get_layer(self.layername)._trainable_weights
-            all_weights = self.model.get_layer(self.layername).get_weights()
-            
-            for i,p in enumerate(all_params):
-                #print(p.name)
-                if (p.name.find(self.varname)>=0):
-                    #print("recording", p.name)
-                    self.record.append(all_weights[i])
-                    
-                    
+    def on_epoch_end(self,epoch, logs={}):
+        all_params = self.model.get_layer(self.layername)._trainable_weights
+        all_weights = self.model.get_layer(self.layername).get_weights()
+
+        for i,p in enumerate(all_params):
+            #print(p.name)
+            if (p.name.find(self.varname)>=0):
+            #print("recording", p.name)
+                self.record.append(all_weights[i])
+
+
 class RecordVariable(RecordWeights):
         print("The name for Record Variable has changed, use RecordWeights or RecordTensor instead")
         pass
-                    
-                    
 
 class RecordTensor(Callback):
-        print("Not working!")
-        pass
-        def __init__(self,tensor, on_batch=True,  on_epoch=False):
-            self.tensor = tensor
-            self.on_batch = on_batch
-            self.on_epoch = on_epoch
-        def setVariableName(self,tensor):
-            self.layername = tensor
-        def on_train_begin(self, logs={}):
-            self.record = []
-        def on_batch_end(self, batch, logs={}):        
-            self.record.append(K.eval(self.tensor))   
-        def on_epoch_end(self,epoch, logs={}):
-            self.record.append(K.eval(self.tensor))
-                    
-                    
+    print("Not working!")
+    pass
+    def __init__(self,tensor, on_batch=True,  on_epoch=False):
+        self.tensor = tensor
+        self.on_batch = on_batch
+        self.on_epoch = on_epoch
+    def setVariableName(self,tensor):
+        self.layername = tensor
+    def on_train_begin(self, logs={}):
+        self.record = []
+    def on_batch_end(self, batch, logs={}):        
+        self.record.append(K.eval(self.tensor))   
+    def on_epoch_end(self,epoch, logs={}):
+        self.record.append(K.eval(self.tensor))
+
+
 class PrintLayerVariableStats(Callback):
-        def __init__(self,name,var,stat_functions,stat_names):
-            self.layername = name
-            self.varname = var
-            self.stat_list = stat_functions
-            self.stat_names = stat_names
-        
-        def setVariableName(self,name, var):
-            self.layername = name
-            self.varname = var
-        def on_train_begin(self, logs={}):
-            all_params = self.model.get_layer(self.layername)._trainable_weights
-            all_weights = self.model.get_layer(self.layername).get_weights()
-            
-            for i,p in enumerate(all_params):
-                #print(p.name)
-                if (p.name.find(self.varname)>=0):
-                    stat_str = [n+str(s(all_weights[i])) for s,n in zip(self.stat_list,self.stat_names)]
-                    print("Stats for", p.name, stat_str)
+    def __init__(self,name,var,stat_functions,stat_names):
+        self.layername = name
+        self.varname = var
+        self.stat_list = stat_functions
+        self.stat_names = stat_names
+
+    def setVariableName(self,name, var):
+        self.layername = name
+        self.varname = var
+    def on_train_begin(self, logs={}):
+        all_params = self.model.get_layer(self.layername)._trainable_weights
+        all_weights = self.model.get_layer(self.layername).get_weights()
+
+        for i,p in enumerate(all_params):
+            #print(p.name)
+            if (p.name.find(self.varname)>=0):
+                stat_str = [n+str(s(all_weights[i])) for s,n in zip(self.stat_list,self.stat_names)]
+                print("Stats for", p.name, stat_str)
 
         #def on_batch_end(self, batch, logs={}):
         #    self.record.append(logs.get('loss'))
-            
-        def on_epoch_end(self, epoch, logs={}):
-            all_params = all_weights = self.model.get_layer(self.layername)._trainable_weights
-            all_weights = self.model.get_layer(self.layername).get_weights()
-            
-            for i,p in enumerate(all_params):
-                #print(p.name)
-                if (p.name.find(self.varname)>=0):
-                    stat_str = [n+str(s(all_weights[i])) for s,n in zip(self.stat_list,self.stat_names)]
-                    print("Stats for", p.name, stat_str)
-                    
-class RecordFunctionOutput(Callback):
-        #print("Not working!")
-        def __init__(self,funct, avg=False):
-            self.funct = funct
-            self.sess = K.get_session()
-            self.avg=avg
-            self.count = 0
-        
-        
-        def setVariableName(self,funct):
-            self.funct = funct
-        def on_train_begin(self, logs={}):
-            self.record = []
-            self.count = 0
-            if K.backend() == 'tensorflow':
-                self.sess = K.get_session()
-        
-        def on_train_end(self, logs={}):
-            if self.avg:
-                self.record[0]/=self.count
-                
 
-        def on_batch_end(self, batch, logs={}):
-            #print("BATCH END",logs.keys())
-            #for i in range(len(logs['ins_batch'])):
-            #    print("BATCH IN shape", logs['ins_batch'][i].shape)
-            #with self.sess as sess:
-            #    acc = sess.run(self.layer.output, feed_dict={'input_1':logs['ins_batch'][0]})
-            # this is the batch input
-            inp = logs['ins_batch'][0]
-            acc = self.funct([inp])
-            if self.avg:
-                if self.record:
-                    #print("Adding")
-                    self.record[0]+=acc[0]
+    def on_epoch_end(self, epoch, logs={}):
+        all_params = all_weights = self.model.get_layer(self.layername)._trainable_weights
+        all_weights = self.model.get_layer(self.layername).get_weights()
+            
+        for i,p in enumerate(all_params):
+            #print(p.name)
+            if (p.name.find(self.varname)>=0):
+                stat_str = [n+str(s(all_weights[i])) for s,n in zip(self.stat_list,self.stat_names)]
+                print("Stats for", p.name, stat_str)
+
+
+class RecordFunctionOutput(Callback):
+
+    def __init__(self,funct, avg=False):
+        self.funct = funct
+        self.sess = K.get_session()
+        self.avg=avg
+        self.count = 0
+
+
+    def setVariableName(self,funct):
+        self.funct = funct
+    def on_train_begin(self, logs={}):
+        self.record = []
+        self.count = 0
+        if K.backend() == 'tensorflow':
+            self.sess = K.get_session()
+        
+    def on_train_end(self, logs={}):
+        if self.avg:
+            self.record[0]/=self.count
+
+
+    def on_batch_end(self, batch, logs={}):
+
+        inp = logs['ins_batch'][0]
+        acc = self.funct([inp])
+        if self.avg and self.record:
+                self.record[0]+=acc[0]
 
 
 
 
 class PrintAnyVariable(Callback):
-        
-        def __init__(self,scope, varname):
-            print("THIS DOES NOT WORK!!!!",)
-            self.scope = scope
-            self.varname = varname
+
+    def __init__(self,scope, varname):
+        print("THIS DOES NOT WORK!!!!",)
+        self.scope = scope
+        self.varname = varname
             
-        def setVariableName(self,scope, varname):
-            self.scope = scope
-            self.varname = varname
-        def on_train_begin(self, logs={}):
-            vs =[n.name for n in K.tf.get_default_graph().as_graph_def().node]
-            print(vs)
-            for v in vs:
-                if v.name ==self.varname:
-                    with K.get_session() as sess:
-                        print(":", K.get_value(v))
-                    #print(self.varname," ", K.get_value(v))
-        #def on_batch_end(self, batch, logs={}):
-        #    self.record.append(logs.get('loss'))
-            
-        def on_epoch_end(self, epoch, logs={}):
-            g = K.tf.get_default_graph()
-            v = g.get_tensor_by_name(self.varname)
-            print(v)
-            vs =[n for n in K.tf.get_default_graph().as_graph_def().node]
-            for v in vs:
-                if v.name ==self.varname:
-                    print(v.name)
-                    #K.tf.print(v)
-                    #print(self.varname," ", K.get_value(v))
+    def setVariableName(self,scope, varname):
+        self.scope = scope
+        self.varname = varname
+    def on_train_begin(self, logs={}):
+        vs =[n.name for n in K.tf.get_default_graph().as_graph_def().node]
+        print(vs)
+        for v in vs:
+            if v.name ==self.varname:
+                print(":", K.get_value(v))
+
+    def on_epoch_end(self, epoch, logs={}):
+        g = K.tf.get_default_graph()
+        v = g.get_tensor_by_name(self.varname)
+        print(v)
+        vs =[n for n in K.tf.get_default_graph().as_graph_def().node]
+        for v in vs:
+            if v.name ==self.varname:
+                print(v.name)
 
 
-#def clip_variable_after_batch(Callback):
-#    def __init__(self,name,var,min_val, max_val):
-#            self.layername = name
-#            self.varname = var
-#            self.stat_list = stat_functions
-#            self.stat_names = stat_names
-#            self.min_val = K.variable(min_val)
-#            self.max_val = K.variable(max_val)
-#    
-#    def on_batch_end(self,batch, logs={}):
-#        all_params = self.model.get_layer(self.layername)._trainable_weights
-#        for i,p in enumerate(all_params):
-#                #print(p.name)
-#                if (p.name.find(self.varname)>=0):
-#                    #print("recording", p.name)
-#                    self.record.append(all_weights[i])
-#            x = keras.backend.clip(x, self.min_value, self.max_value)
-#    
+
 from keras.optimizers import Optimizer
-
 from six.moves import zip
-
-
-#from keras.utils.generic_utils  import serialize_keras_object
-#from keras.utils.generic_utils import deserialize_keras_object
 from keras.legacy import interfaces
     
 class SGDwithLR(Optimizer):
@@ -331,7 +324,6 @@ class SGDwithLR(Optimizer):
         decay: float >= 0. Learning rate decay over each update.
         nesterov: boolean. Whether to apply Nesterov momentum.
     """
-
     def __init__(self, lr={'all':0.1}, momentum={'all':0.0}, decay={},
                  clips={}, decay_epochs=None,
                  nesterov=False, **kwargs):
@@ -352,7 +344,7 @@ class SGDwithLR(Optimizer):
                 #print(lr)
         
             self.lr = kdict(lr,'lr_')
-            print("LEARNING RATE: ", lr)
+            #print("LEARNING RATE: ", lr)
             self.momentum = kdict(momentum,'mom_')
             self.decay = kdict(decay,'dec_')
             self.clips = kdict(clips,'clips')
@@ -367,83 +359,72 @@ class SGDwithLR(Optimizer):
     @interfaces.legacy_get_updates_support
     def get_updates(self, loss, params):
         grads = self.get_gradients(loss, params)
-        
+
         # first update the number of iterations
         self.updates = [K.update_add(self.iterations, 1)]
-        #print("HEREERREERERERERERERE", self.iterations in self.decay_epochs)
-#        print(self.lr)
-#        print(self.momentum)
-#        print(self.decay)
-#        print(self.initial_decay)
-        #ite_casted = K.cast(self.iterations, K.dtype(self.decay_epochs))
-        #hit_decay_epoch = K.any(K.equal(ite_casted, self.decay_epochs))#K.any(ite_casted - self.decay_epochs)
-        #print("HIT DECAY EPOCH", K.get_value(ite_casted), K.get_value(self.decay_epochs), K.get_value(hit_decay_epoch))
+        
         if self.decay_epochs:
             ite_casted = K.cast(self.iterations, K.dtype(self.decay_epochs))
-            hit_decay_epoch = K.any(K.equal(ite_casted, self.decay_epochs))#K.any(ite_casted - self.decay_epochs)
-        
+            hit_decay_epoch = K.any(K.equal(ite_casted, self.decay_epochs))
+            
+
             print(hit_decay_epoch)
             lr = K.switch(hit_decay_epoch, self.lr['all']*self.decay['all'],
                           self.lr['all'])
-            #print("LRR : ", K.eval(lr))
-            
+
             a = K.switch(hit_decay_epoch, 
-                          K.print_tensor(self.lr['all'],message='Decays:'), K.print_tensor(self.lr['all'],message=' '))
-            
-            
+                         K.print_tensor(self.lr['all'],message='Decays:'), 
+                         K.print_tensor(self.lr['all'],message=' '))
+
+
             self.updates.append(K.update(self.lr['all'],lr))
-            
-     
-        # momentum
+
         shapes = [K.int_shape(p) for p in params]
-        moments = [K.zeros(shape) for shape in shapes]
+        moments = [K.zeros(s) for s in shapes]
         self.weights = [self.iterations] + moments
         #print(self.weights)
 
         for p, g, m in zip(params, grads, moments):
-            print("HEREEEE:",p,g,m)
+            #print("HEREEEE:", p.name, g, m)
             if p.name in self.lr.keys():
-                print("Setting different learning rate for", p.name, ",", K.eval(self.lr[p.name]))
+                print("Setting different learning rate for ", p.name, " : ", K.eval(self.lr[p.name]))
                 lr = self.lr[p.name]
-                if self.decay_epochs:
-                    if  p.name in self.decay.keys():
-                        print("Adding decay to ", p.name)
-                        lr = K.switch(hit_decay_epoch, self.lr[p.name]*self.decay[p.name],
+                if self.decay_epochs and p.name in self.decay.keys():
+                    lr = K.switch(hit_decay_epoch, self.lr[p.name]*self.decay[p.name],
                                   self.lr[p.name])
-                        self.updates.append(K.update(self.lr[p.name],lr))
-                    else:
-                        print("Adding decay to ", p.name)
-                        lr = K.switch(hit_decay_epoch, self.lr[p.name]*self.decay['all'],
-                                  self.lr[p.name])
-                        self.updates.append(K.update(self.lr[p.name],lr))
-                        print("Adding decay to ", K.eval(lr))
-                      
+                    self.updates.append(K.update(self.lr[p.name],lr))
+                    print("Added decay to ", p.name, ": ", K.eval(lr),",",self.decay[p.name])
+                elif self.decay_epochs:
+                    lr = K.switch(hit_decay_epoch, self.lr[p.name]*self.decay['all'],self.lr[p.name])
+                    self.updates.append(K.update(self.lr[p.name],lr))
+                    print("Added decay to ", p.name, ": ", K.eval(lr),",",self.decay['all'])
+                else:
+                    lr = self.lr[p.name]
+
             else:
                 lr = self.lr['all']
-            
-            #print("USING LR", p.name, " ", K.eval(lr))
-            
+
             if p.name in self.momentum.keys():
-                print("Setting different momentum for ", p.name, ",", K.eval(self.momentum[p.name]))
+                print("Setting different momentum for ", p.name, " , ", 
+                      K.eval(self.momentum[p.name]))
                 momentum = self.momentum[p.name]
             else:
-                momentum = self.momentum['all']   
-            
-                       
+                momentum = self.momentum['all'] 
+
             v = momentum * m - lr * g  # velocity
             self.updates.append(K.update(m, v))
 
             if self.nesterov:
-                new_p = p + momentum * v - lr * g
+                new_p = p + momentum * (momentum * m - lr * g) - lr * g
             else:
-                new_p = p + v
+                new_p = p + momentum * m - lr * g
                 
             # Apply constraints.
             if getattr(p, 'constraint', None) is not None:
                 new_p = p.constraint(new_p)
             
             if self.clips_val and (p.name in self.clips.keys()):
-                print("Clipping variable",p.name," to ", self.clips[p.name] )
+                print("Clipping variable",p.name," to ", self.clips[p.name])
                 c = K.eval(self.clips[p.name])
                 new_p = K.clip(new_p, c[0], c[1])
             #print("updates for ", p.name, " lr: ", K.eval(lr), " mom:", K.eval(momentum))

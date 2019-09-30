@@ -105,9 +105,10 @@ def test_transfer(dset='mnist', random_seed=9, epochs=10,
     from keras import backend as K
     from keras_utils import WeightHistory as WeightHistory
     from keras_utils import RecordVariable, \
-    PrintLayerVariableStats, PrintAnyVariable, SGDwithLR, eval_Kdict
+    PrintLayerVariableStats, PrintAnyVariable, \
+    SGDwithLR, eval_Kdict, standarize_image_025
     from keras_preprocessing.image import ImageDataGenerator
-    from Kfocusing import FocusedLayer1D, standarize_image_025
+    from Kfocusing import FocusedLayer1D
     
     from keras.engine.topology import Layer
     from keras import activations, regularizers, constraints
@@ -171,11 +172,7 @@ def test_transfer(dset='mnist', random_seed=9, epochs=10,
         n_channels=3
         
         (x_train, y_train), (x_test, y_test) = cifar10.load_data()
-    
-            
-                
-            
-            
+        
         lr_dict = {'all':0.0001,
                   'focus-1/Sigma:0': 0.001,'focus-1/Mu:0': 0.001,'focus-1/Weights:0': 0.001,
                   'focus-2/Sigma:0': 0.001,'focus-2/Mu:0': 0.001,'focus-2/Weights:0': 0.001,
@@ -187,17 +184,17 @@ def test_transfer(dset='mnist', random_seed=9, epochs=10,
         #decay_dict = {'all':0.9}
         #mom_dict = {'all':0.9,'focus-1/Sigma:0': 0.25,'focus-1/Mu:0': 0.25,
         #           'focus-2/Sigma:0': 0.25,'focus-2/Mu:0': 0.25}
-    
-        decay_dict = {'all':0.9, 'focus-1/Sigma:0': 0.1,'focus-1/Mu:0':0.1,
-                  'focus-2/Sigma:0': 0.1,'focus-2/Mu:0': 0.1}
+        decay_dict = {'all':0.95}
+        #decay_dict = {'all':0.95, 'focus-1/Sigma:0': 0.9,'focus-1/Mu:0':0.9,
+        #          'focus-2/Sigma:0': 0.9,'focus-2/Mu:0': 0.9}
 
         clip_dict = {'focus-1/Sigma:0':(0.05,1.0),'focus-1/Mu:0':(0.0,1.0),
                  'focus-2/Sigma:0':(0.05,1.0),'focus-2/Mu:0':(0.0,1.0)}
         
         e_i = x_train.shape[0] // batch_size
         
-        decay_epochs =np.array([e_i*10], dtype='int64') #for 20 epochs
-        #decay_epochs =np.array([e_i*30,e_i*80,e_i*120,e_i*160], dtype='int64')
+        #decay_epochs =np.array([e_i*10], dtype='int64') #for 20 epochs
+        decay_epochs =np.array([e_i*10,e_i*80,e_i*120,e_i*160], dtype='int64')
     
     num_classes = np.unique(y_train).shape[0]
     
@@ -286,6 +283,15 @@ def test_transfer(dset='mnist', random_seed=9, epochs=10,
     #x = base_model.output
     x=base_model.output
     x = GlobalAveragePooling2D()(x)
+    
+    pad_input =True
+    if pad_input:
+        print("PADDING LAYER OUPUT")
+        
+        paddings = tf.constant([[0, 0,], [3, 3]])
+    
+        padding_layer = keras.layers.Lambda(lambda x: tf.pad(x,paddings,"CONSTANT"))
+        x = padding_layer(x)
     #x = Dropout(0.1)(x)
     # let's add a fully-connected layer
     focusing=mod=='focused'
@@ -294,7 +300,7 @@ def test_transfer(dset='mnist', random_seed=9, epochs=10,
         x = FocusedLayer1D(units=nf,
                            name='focus-1',
                            activation='linear',
-                           init_sigma=np.abs(np.random.normal(0.25,0.001,nf)), 
+                           init_sigma=np.abs(np.random.normal(0.2,0.001,nf)), 
                            init_mu='spread',
                            init_w= None,
                            train_sigma=True, 
@@ -503,10 +509,11 @@ def repeated_ttrials(dset='mnist',N=1, epochs=2, augment=False,
 
 
 import os
-#os.environ['CUDA_VISIBLE_DEVICES']="0"
-#os.environ['TF_FORCE_GPU_ALLOW_GROWTH']="true"
-R = 1
+os.environ['CUDA_VISIBLE_DEVICES']="1"
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH']="true"
+R = 3
 mod='focused'
+#mod='dense'
 # ntrn =[100,1000,10000,-1] R=10 papepr result BTEK 8.8.2019
 ntrn=None
 N=1
@@ -534,7 +541,7 @@ from datetime import datetime
 now = datetime.now()
 timestr = then.strftime("%Y%m%d-%H%M%S")+now.strftime("%H%M%S")
     
-filename = 'outputs/transfer-cifar10/'+'experiment'+timestr+'_'+mod+'_results.npz'
+filename = 'outputs/transfer-cifar10/'+'experiment'+timestr+'_'+mod+'n_results.npz'
 np.savez_compressed(filename,ls_mx_sc =ls_mx_sc, ls_ls_sc=ls_ls_sc)
 
 

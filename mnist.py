@@ -513,7 +513,7 @@ def main(model='mlp', num_epochs=500, dataset='mnist', folder="", exp_start_time
 
     # Prepare Theano variables for inputs and targets
     input_var = T.tensor4('inputs')
-    target_var = T.ivector('targets')    
+    target_var = T.ivector('targets')
     input_shape= (None, X_train.shape[1],X_train.shape[2],X_train.shape[3])
     
     
