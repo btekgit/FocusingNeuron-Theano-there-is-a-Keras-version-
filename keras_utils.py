@@ -28,16 +28,17 @@ def print_layer_weights(model):
         print(len(w))
         print(w)
 
-def get_layer_weights(model,layer_name):
+def get_layer_weights(model,layer_name,verbose=0):
     
     for layer in model.layers:
         if (layer.name==layer_name):
-            print("Layer: ", layer)
-            print('name:',layer.name)
             g=layer.get_config()
-            print(g)
             w = layer.get_weights()
-            print(len(w))
+            if verbose>0:
+                print("Layer: ", layer)
+                print('name:',layer.name)
+                print(g)
+                print(len(w))
             return w
         else:
             return None
@@ -112,20 +113,21 @@ def dump_keras_structure(weight_file_path):
 
 class WeightHistory(Callback):
 
-    def __init__(self, model, layername):
+    def __init__(self, model, layername, verbose=0):
         self.batchlist=[]
         self.epochlist=[]
         self.sess = None
         self.warn = True
         self.model = model
         self.layername = layername
-        
-        print("Weight history set for: ", self.model.get_layer(self.layername))
+        self.verbose = verbose
+        if verbose>0:
+            print("Weight history set for: ", self.model.get_layer(self.layername))
         super(WeightHistory, self).__init__()
     
     def set_model(self, model):
         self.model = model
-        print(self.model.summary())
+        #print(self.model.summary())
     
     def on_train_begin(self, logs={}):
         self.batchlist = []
@@ -326,7 +328,7 @@ class SGDwithLR(Optimizer):
     """
     def __init__(self, lr={'all':0.1}, momentum={'all':0.0}, decay={},
                  clips={}, decay_epochs=None,
-                 nesterov=False, **kwargs):
+                 nesterov=False, verbose=0, **kwargs):
         super(SGDwithLR, self).__init__(**kwargs)
         with K.name_scope(self.__class__.__name__):
             self.iterations = K.variable(0, dtype='int64', name='iterations')
@@ -355,6 +357,7 @@ class SGDwithLR(Optimizer):
                 self.decay_epochs=[]
                     
         self.nesterov = nesterov
+        self.verbose = verbose
 
     @interfaces.legacy_get_updates_support
     def get_updates(self, loss, params):
@@ -367,14 +370,14 @@ class SGDwithLR(Optimizer):
             ite_casted = K.cast(self.iterations, K.dtype(self.decay_epochs))
             hit_decay_epoch = K.any(K.equal(ite_casted, self.decay_epochs))
             
-
-            print(hit_decay_epoch)
+            #print(hit_decay_epoch)
             lr = K.switch(hit_decay_epoch, self.lr['all']*self.decay['all'],
                           self.lr['all'])
 
-            a = K.switch(hit_decay_epoch, 
-                         K.print_tensor(self.lr['all'],message='Decays:'), 
-                         K.print_tensor(self.lr['all'],message=' '))
+            K.print_tensor(self.lr['all'])
+            #a = K.switch(hit_decay_epoch, 
+            #             K.print_tensor(self.lr['all'],message='Decays:'), 
+            #             K.print_tensor(self.lr['all'],message=' '))
 
 
             self.updates.append(K.update(self.lr['all'],lr))
@@ -387,17 +390,20 @@ class SGDwithLR(Optimizer):
         for p, g, m in zip(params, grads, moments):
             #print("HEREEEE:", p.name, g, m)
             if p.name in self.lr.keys():
-                print("Setting different learning rate for ", p.name, " : ", K.eval(self.lr[p.name]))
+                if self.verbose>0:
+                    print("Setting different learning rate for ", p.name, " : ", K.eval(self.lr[p.name]))
                 lr = self.lr[p.name]
                 if self.decay_epochs and p.name in self.decay.keys():
                     lr = K.switch(hit_decay_epoch, self.lr[p.name]*self.decay[p.name],
                                   self.lr[p.name])
                     self.updates.append(K.update(self.lr[p.name],lr))
-                    print("Added decay to ", p.name, ": ", K.eval(lr),",",self.decay[p.name])
+                    if self.verbose>0:
+                        print("Added decay to ", p.name, ": ", K.eval(lr),",",self.decay[p.name])
                 elif self.decay_epochs:
                     lr = K.switch(hit_decay_epoch, self.lr[p.name]*self.decay['all'],self.lr[p.name])
                     self.updates.append(K.update(self.lr[p.name],lr))
-                    print("Added decay to ", p.name, ": ", K.eval(lr),",",self.decay['all'])
+                    if self.verbose>0:
+                        print("Added decay to ", p.name, ": ", K.eval(lr),",",self.decay['all'])
                 else:
                     lr = self.lr[p.name]
 
@@ -405,8 +411,9 @@ class SGDwithLR(Optimizer):
                 lr = self.lr['all']
 
             if p.name in self.momentum.keys():
-                print("Setting different momentum for ", p.name, " , ", 
-                      K.eval(self.momentum[p.name]))
+                if self.verbose>0:
+                    print("Setting different momentum for ", p.name, " , ", 
+                          K.eval(self.momentum[p.name]))
                 momentum = self.momentum[p.name]
             else:
                 momentum = self.momentum['all'] 
@@ -424,7 +431,8 @@ class SGDwithLR(Optimizer):
                 new_p = p.constraint(new_p)
             
             if self.clips_val and (p.name in self.clips.keys()):
-                print("Clipping variable",p.name," to ", self.clips[p.name])
+                if self.verbose>0:
+                    print("Clipping variable",p.name," to ", self.clips[p.name])
                 c = K.eval(self.clips[p.name])
                 new_p = K.clip(new_p, c[0], c[1])
             #print("updates for ", p.name, " lr: ", K.eval(lr), " mom:", K.eval(momentum))
@@ -463,7 +471,8 @@ class RMSpropwithClip(Optimizer):
           (http://www.cs.toronto.edu/~tijmen/csc321/slides/lecture_slides_lec6.pdf)
     """
 
-    def __init__(self, lr=0.001, rho=0.9, epsilon=None, decay=0.,clips={},
+    def __init__(self, lr=0.001, rho=0.9, epsilon=None, decay=0., clips={},
+                 verbose=0,
                  **kwargs):
         super(RMSpropwithClip, self).__init__(**kwargs)
         with K.name_scope(self.__class__.__name__):
@@ -477,6 +486,7 @@ class RMSpropwithClip(Optimizer):
             epsilon = K.epsilon()
         self.epsilon = epsilon
         self.initial_decay = decay
+        self.verbose=verbose
 
     @interfaces.legacy_get_updates_support
     def get_updates(self, loss, params):
@@ -501,7 +511,8 @@ class RMSpropwithClip(Optimizer):
                 new_p = p.constraint(new_p)
                 
             if p.name in self.clips.keys():
-                print("CLpping variable",p.name," to ", self.clips[p.name] )
+                if self.verbose>0:
+                    print("CLpping variable",p.name," to ", self.clips[p.name] )
                 c = K.eval(self.clips[p.name])
                 new_p = K.clip(new_p, c[0], c[1])
 
@@ -514,4 +525,105 @@ class RMSpropwithClip(Optimizer):
                   'decay': float(K.get_value(self.decay)),
                   'epsilon': self.epsilon}
         base_config = super(RMSpropwithClip, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+class AdamwithClip(Optimizer):
+    """Adam optimizer.
+
+    Default parameters follow those provided in the original paper.
+
+    # Arguments
+        lr: float >= 0. Learning rate.
+        beta_1: float, 0 < beta < 1. Generally close to 1.
+        beta_2: float, 0 < beta < 1. Generally close to 1.
+        epsilon: float >= 0. Fuzz factor. If `None`, defaults to `K.epsilon()`.
+        decay: float >= 0. Learning rate decay over each update.
+        amsgrad: boolean. Whether to apply the AMSGrad variant of this
+            algorithm from the paper "On the Convergence of Adam and
+            Beyond".
+
+    # References
+        - [Adam - A Method for Stochastic Optimization]
+          (https://arxiv.org/abs/1412.6980v8)
+        - [On the Convergence of Adam and Beyond]
+          (https://openreview.net/forum?id=ryQu7f-RZ)
+    """
+
+    def __init__(self, lr=0.001, beta_1=0.9, beta_2=0.999,
+                 epsilon=None, decay=0., amsgrad=False, clips={},
+                 verbose=0, **kwargs):
+        super(AdamwithClip, self).__init__(**kwargs)
+        with K.name_scope(self.__class__.__name__):
+            self.iterations = K.variable(0, dtype='int64', name='iterations')
+            self.lr = K.variable(lr, name='lr')
+            self.beta_1 = K.variable(beta_1, name='beta_1')
+            self.beta_2 = K.variable(beta_2, name='beta_2')
+            self.decay = K.variable(decay, name='decay')
+            self.clips = kdict(clips,'clips')
+            self.clips_val = clips
+        if epsilon is None:
+            epsilon = K.epsilon()
+        self.epsilon = epsilon
+        self.initial_decay = decay
+        self.amsgrad = amsgrad
+        self.verbose = verbose
+
+    @interfaces.legacy_get_updates_support
+    def get_updates(self, loss, params):
+        grads = self.get_gradients(loss, params)
+        self.updates = [K.update_add(self.iterations, 1)]
+
+        lr = self.lr
+        if self.initial_decay > 0:
+            lr = lr * (1. / (1. + self.decay * K.cast(self.iterations,
+                                                      K.dtype(self.decay))))
+
+        t = K.cast(self.iterations, K.floatx()) + 1
+        lr_t = lr * (K.sqrt(1. - K.pow(self.beta_2, t)) /
+                     (1. - K.pow(self.beta_1, t)))
+
+        ms = [K.zeros(K.int_shape(p), dtype=K.dtype(p)) for p in params]
+        vs = [K.zeros(K.int_shape(p), dtype=K.dtype(p)) for p in params]
+        if self.amsgrad:
+            vhats = [K.zeros(K.int_shape(p), dtype=K.dtype(p)) for p in params]
+        else:
+            vhats = [K.zeros(1) for _ in params]
+        self.weights = [self.iterations] + ms + vs + vhats
+
+        for p, g, m, v, vhat in zip(params, grads, ms, vs, vhats):
+            m_t = (self.beta_1 * m) + (1. - self.beta_1) * g
+            v_t = (self.beta_2 * v) + (1. - self.beta_2) * K.square(g)
+            if self.amsgrad:
+                vhat_t = K.maximum(vhat, v_t)
+                p_t = p - lr_t * m_t / (K.sqrt(vhat_t) + self.epsilon)
+                self.updates.append(K.update(vhat, vhat_t))
+            else:
+                p_t = p - lr_t * m_t / (K.sqrt(v_t) + self.epsilon)
+
+            self.updates.append(K.update(m, m_t))
+            self.updates.append(K.update(v, v_t))
+            new_p = p_t
+
+            # Apply constraints.
+            if getattr(p, 'constraint', None) is not None:
+                new_p = p.constraint(new_p)
+                
+            if p.name in self.clips.keys():
+                c = K.eval(self.clips[p.name])
+                if self.verbose>0:
+                    print("Clipping variable",p.name," to ", c )
+                new_p = K.clip(new_p, c[0], c[1])
+
+            self.updates.append(K.update(p, new_p))
+        return self.updates
+
+    def get_config(self):
+        config = {'lr': float(K.get_value(self.lr)),
+                  'beta_1': float(K.get_value(self.beta_1)),
+                  'beta_2': float(K.get_value(self.beta_2)),
+                  'decay': float(K.get_value(self.decay)),
+                  'epsilon': self.epsilon,
+                  'amsgrad': self.amsgrad,
+                  'clips': self.clips_val}
+        base_config = super(AdamwithClip, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
